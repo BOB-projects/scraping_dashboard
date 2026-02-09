@@ -9,5 +9,6 @@ dependencies = [
     "pandas>=2.3.3",
     "plotly>=6.5.2",
     "pyarrow>=23.0.0",
+    "statsmodels>=0.14.6",
     "streamlit>=1.54.0",
 ]
