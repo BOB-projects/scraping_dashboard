@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+data/bina_az/data/bina_sale_202601.csv
+data/bina_az/data/bina_sale_202602.csv
+data/bina_az/data/rent/bina_rent_202601.csv
+data/bina_az/data/rent/bina_rent_202602.csv
