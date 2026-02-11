@@ -87,6 +87,46 @@ def _qp_set_param(params, key, value):
     else:
         params[key] = str(value)
 
+# --- Filter Helpers ---
+def _safe_slider_bounds(df, col, as_int=True, fallback_min=0, fallback_max=1):
+    """Compute safe (min, max) for a slider, guarding against empty/NaN/equal bounds."""
+    if df.empty or col not in df.columns:
+        return (fallback_min, fallback_max)
+    series = df[col].dropna()
+    if series.empty:
+        return (fallback_min, fallback_max)
+    mn, mx = series.min(), series.max()
+    if pd.isna(mn) or pd.isna(mx):
+        return (fallback_min, fallback_max)
+    if as_int:
+        mn, mx = int(mn), int(mx)
+    if mn >= mx:
+        mx = mn + 1
+    return (mn, mx)
+
+def _clamp_slider_state(key, min_val, max_val):
+    """Clamp a range-slider session state to valid bounds."""
+    if key in st.session_state:
+        lo, hi = st.session_state[key]
+        lo = max(min_val, min(max_val, lo))
+        hi = max(min_val, min(max_val, hi))
+        if lo > hi:
+            lo, hi = min_val, max_val
+        st.session_state[key] = (lo, hi)
+
+def _clean_pills_state(key, valid_options, default=None):
+    """Ensure pills / multiselect session state only contains currently valid options."""
+    if key in st.session_state:
+        current = st.session_state[key]
+        if isinstance(current, (list, tuple)):
+            cleaned = [v for v in current if v in valid_options]
+        else:
+            cleaned = [current] if current in valid_options else []
+        if not cleaned:
+            st.session_state[key] = list(default) if default is not None else list(valid_options)
+        else:
+            st.session_state[key] = cleaned
+
 # --- Translations ---
 TRANSLATIONS = {
     "en": {
@@ -130,8 +170,12 @@ TRANSLATIONS = {
         "select_brands": "Select Brands",
         "select_all": "Select All",
         "select_all_brands": "Select All Brands",
+        "brand_selection_mode": "Brand Selection",
+        "all_brands": "All Brands",
         "brands": "Brands",
         "price_range": "Price Range",
+        "area_range": "Area Range",
+        "unit_price_range": "Unit Price Range",
         "year_range": "Year Range",
         "max_mileage": "Max Mileage",
         "fuel_type": "Fuel Type",
@@ -143,6 +187,7 @@ TRANSLATIONS = {
         "export": "📥 Export Data",
         "download_csv": "Download CSV",
         "download_excel": "Download Excel",
+        "prepare_excel": "Prepare Excel",
         "markets": "Markets",
         "products": "Products",
         "avg_discount": "Avg Discount",
@@ -182,10 +227,10 @@ TRANSLATIONS = {
         "marketplace": "Bazar",
         "market_analysis": "Bazar Təhlili",
         "language": "Dil",
-        "time_type": "📅 Zaman və Növ",
+        "time_type": "Zaman və Növ",
         "op_type": "Əməliyyat Növü",
         "select_months": "Ayları Seçin",
-        "location": "🌍 Məkan",
+        "location": "Məkan",
         "min_ads_region": "Region üzrə Min Elan",
         "selection_mode": "Seçim Rejimi",
         "all_regions": "Bütün Regionlar",
@@ -194,7 +239,7 @@ TRANSLATIONS = {
         "custom": "Xüsusi",
         "select_regions": "Regionları Seçin",
         "warning_region": "Ən azı bir region seçin",
-        "prop_details": "🏠 Əmlak Təfərrüatları",
+        "prop_details": "Əmlak Təfərrüatları",
         "room_count": "Otaq Sayı",
         "category": "Kateqoriya",
         "prop_category": "Əmlak Kateqoriyası",
@@ -216,10 +261,14 @@ TRANSLATIONS = {
         "filter_specs": "⚙️ Texniki Xüsusiyyətlər",
         "min_ads_brand": "Brend üzrə Min Elan",
         "select_brands": "Brendləri Seçin",
-        "select_all": "Hər birini seç",
+        "select_all": "Hamısını Seç",
         "select_all_brands": "Bütün Brendləri Seçin",
+        "brand_selection_mode": "Brend Seçimi",
+        "all_brands": "Bütün Brendlər",
         "brands": "Brendlər",
         "price_range": "Qiymət Aralığı",
+        "area_range": "Sahə Aralığı",
+        "unit_price_range": "Vahid Qiymət Aralığı",
         "year_range": "İl Aralığı",
         "max_mileage": "Maks Yürüş",
         "fuel_type": "Yanacaq Növü",
@@ -231,6 +280,7 @@ TRANSLATIONS = {
         "export": "📥 Məlumatı Yüklə",
         "download_csv": "CSV Yüklə",
         "download_excel": "Excel Yüklə",
+        "prepare_excel": "Excel Hazirla",
         "markets": "Marketlər",
         "products": "Məhsullar",
         "avg_discount": "Ort. Endirim",
@@ -271,6 +321,23 @@ TRANSLATIONS = {
 st.markdown("""
     <style>
         .block-container {padding-top: 1rem; padding-bottom: 2rem;}
+        
+        /* Fix for ghost elements appearing when switching views */
+        section[data-testid="stSidebar"] div.stVerticalBlock > div {
+            display: block !important;
+            position: relative !important;
+        }
+        
+        /* Disable the gray-out effect that causes 'ghost' artifacts during reruns */
+        div[data-testid="stAppViewBlockContainer"] {
+            opacity: 1 !important;
+        }
+        
+        /* Clear any hidden overflow artifacts */
+        .main {
+            overflow-x: hidden;
+        }
+
         div[data-testid="stMetric"] {
             background-color: rgba(240, 242, 246, 0.05);
             border: 1px solid rgba(240, 242, 246, 0.1);
@@ -304,9 +371,11 @@ def on_project_change():
         new_proj = st.session_state.proj_sel
         
         # Clear filters to avoid collisions between projects
+        # Preserve core app state
+        preserved = ['lang', 'lang_choice', 'current_view', 'proj_sel']
         for k in list(st.session_state.keys()):
-            if k not in ['lang', 'lang_choice']:
-                del st.session_state[k]
+            if k not in preserved:
+                st.session_state.pop(k, None)
         
         st.session_state.current_view = new_proj
         st.session_state.lang = st_lang
@@ -318,6 +387,34 @@ if 'lang' not in st.session_state:
 
 def t(key):
     return TRANSLATIONS[st.session_state.lang].get(key, key)
+
+def _period_sort_key(p):
+    try:
+        year, month = str(p).split("-")
+        return (int(year), int(month))
+    except Exception:
+        return (0, 0)
+
+def _format_period_values(series, fmt):
+    if series is None or series.empty:
+        return None, None
+    order = sorted(series.index.astype(str).tolist(), key=_period_sort_key, reverse=True)
+    latest = order[0]
+    latest_val = series.loc[latest]
+    latest_text = fmt.format(latest_val) if not pd.isna(latest_val) else "N/A"
+    rest = [
+        f"{p}: {fmt.format(series.loc[p]) if not pd.isna(series.loc[p]) else 'N/A'}"
+        for p in order[1:]
+    ]
+    rest_text = " | ".join(rest)
+    return latest_text, rest_text
+
+def _render_kpi_by_period(col, label, series, fmt, suffix=""):
+    latest_text, rest_text = _format_period_values(series, fmt)
+    value_text = f"{latest_text}{suffix}" if latest_text is not None else "N/A"
+    col.metric(label, value_text)
+    if rest_text:
+        col.caption(rest_text)
 
 with st.sidebar:
     # Language Selector
@@ -355,10 +452,13 @@ with st.sidebar:
     # Ensure project variable is synced with state
     project = st.session_state.proj_sel if "proj_sel" in st.session_state else st.session_state.current_view
     st.divider()
+    # Sidebar Filter Placeholder for clean UI state management
+    sb_filters = st.empty()
 
 st.title(f"📊 {t(project.lower()) if project == 'Markets' else project} {t('market_analysis')}")
 
-# --- Data Loading Functions ---
+# Add a spacer to prevent Ghost UI artifacts during heavy data loads
+main_container = st.container()
 
 @st.cache_data
 def load_bina_data():
@@ -446,6 +546,15 @@ def load_markets_data():
             else:
                 # Fallback if no timestamp, try to parse from filename or default
                 df['period'] = "Unknown"
+
+            if 'price' in df.columns:
+                # Normalize price to numeric for reliable sliders/metrics
+                df['price'] = (
+                    df['price']
+                    .astype(str)
+                    .str.replace(r"[^0-9\.]", "", regex=True)
+                )
+                df['price'] = pd.to_numeric(df['price'], errors='coerce')
             
             data_frames.append(df)
         except Exception:
@@ -502,8 +611,12 @@ def load_turbo_data():
 
     for f in all_files:
         try:
+            # Read header once to avoid skipping files with missing columns
+            header_cols = pd.read_csv(f['path'], nrows=0).columns
+            use_cols = [c for c in cols if c in header_cols]
+
             # Use pyarrow for extreme speed
-            df = pd.read_csv(f['path'], usecols=cols, engine='pyarrow')
+            df = pd.read_csv(f['path'], usecols=use_cols, engine='pyarrow')
             
             # Fast vectorized string cleaning
             if 'price' in df.columns:
@@ -518,7 +631,8 @@ def load_turbo_data():
             
             if 'engine' in df.columns:
                 # Extract first word (the volume)
-                df['engine_vol'] = df['engine'].str.split(' ').str[0].astype('float32')
+                engine_val = df['engine'].str.split(' ').str[0]
+                df['engine_vol'] = pd.to_numeric(engine_val, errors='coerce').astype('float32')
             
             if 'detail_engine' in df.columns:
                 # Extract fuel from "1.4 L / 180 a.g. / Benzin"
@@ -563,47 +677,48 @@ if project == "Bina.az":
         st.stop()
 
     # Bina.az Slicers
-    with st.sidebar:
+    with sb_filters.container():
         with st.expander("📅 " + t('time_type'), expanded=True):
             op_types = df['operation_type'].unique().tolist()
-            if "op_type" not in st.session_state:
+            if "b_op_type" not in st.session_state:
                 qp_op = _qp_get_value(qp, "op", op_types[0] if op_types else None)
-                st.session_state.op_type = qp_op if qp_op in op_types else (op_types[0] if op_types else None)
-            selected_op = st.selectbox(t('op_type'), op_types, format_func=lambda x: t(x), key="op_type")
+                st.session_state.b_op_type = qp_op if qp_op in op_types else (op_types[0] if op_types else None)
+            selected_op = st.selectbox(t('op_type'), op_types, format_func=lambda x: t(x), key="b_op_type")
             filtered_df = df[df['operation_type'] == selected_op]
 
             available_periods = sorted(filtered_df['period'].unique().tolist())
-            if "periods" not in st.session_state:
+            if "b_periods" not in st.session_state:
                 qp_periods = _qp_get_list(qp, "periods", available_periods)
-                st.session_state.periods = [p for p in qp_periods if p in available_periods] or available_periods
-            selected_periods = st.multiselect(t('select_months'), available_periods, key="periods")
+                st.session_state.b_periods = [p for p in qp_periods if p in available_periods] or available_periods
+            selected_periods = st.multiselect(t('select_months'), available_periods, key="b_periods")
             if not selected_periods:
                 st.stop()
             filtered_df = filtered_df[filtered_df['period'].isin(selected_periods)]
 
         with st.expander("📍 " + t('location'), expanded=True):
-            if "min_ads_region" not in st.session_state:
-                st.session_state.min_ads_region = _qp_get_int(qp, "min_ads_region", 50)
-            min_ads = st.slider(t('min_ads_region'), 1, 1000, key="min_ads_region")
+            if "b_min_ads_region" not in st.session_state:
+                st.session_state.b_min_ads_region = _qp_get_int(qp, "min_ads_region", 50)
+            min_ads = st.slider(t('min_ads_region'), 1, 1000, key="b_min_ads_region")
             
             all_regions = sorted(filtered_df['location_name'].unique().tolist())
-            reg_options = [t('all_regions'), t('top_10'), t('top_20'), t('custom')]
-            if "reg_mode" not in st.session_state:
-                qp_reg = _qp_get_value(qp, "reg_mode", reg_options[0])
-                st.session_state.reg_mode = qp_reg if qp_reg in reg_options else reg_options[0]
-            reg_mode = st.radio(t('selection_mode'), reg_options, horizontal=True, label_visibility="collapsed", key="reg_mode")
+            reg_modes = ['all_regions', 'top_10', 'top_20', 'custom']
+            if "b_reg_mode" not in st.session_state:
+                qp_reg = _qp_get_value(qp, "reg_mode", 'all_regions')
+                st.session_state.b_reg_mode = qp_reg if qp_reg in reg_modes else 'all_regions'
+            reg_mode = st.radio(t('selection_mode'), reg_modes, format_func=lambda x: t(x), horizontal=True, label_visibility="collapsed", key="b_reg_mode")
             
-            if reg_mode == t('all_regions'):
+            if reg_mode == 'all_regions':
                 selected_regions = all_regions
-            elif reg_mode == t('top_10'):
+            elif reg_mode == 'top_10':
                 selected_regions = filtered_df['location_name'].value_counts().head(10).index.tolist()
-            elif reg_mode == t('top_20'):
+            elif reg_mode == 'top_20':
                 selected_regions = filtered_df['location_name'].value_counts().head(20).index.tolist()
             else:
-                if "regions" not in st.session_state:
+                if "b_regions" not in st.session_state:
                     qp_regions = _qp_get_list(qp, "regions", all_regions[:5])
-                    st.session_state.regions = [r for r in qp_regions if r in all_regions] or all_regions[:5]
-                selected_regions = st.multiselect(t('select_regions'), all_regions, key="regions")
+                    st.session_state.b_regions = [r for r in qp_regions if r in all_regions] or all_regions[:5]
+                _clean_pills_state('b_regions', all_regions, all_regions[:5])
+                selected_regions = st.multiselect(t('select_regions'), all_regions, key="b_regions")
                 
             if not selected_regions:
                 st.warning(t('warning_region'))
@@ -611,13 +726,14 @@ if project == "Bina.az":
             filtered_df = filtered_df[filtered_df['location_name'].isin(selected_regions)]
 
         with st.expander("🏠 " + t('prop_details'), expanded=True):
-            # Room Count with Pills for better visuals
+            # Room Count with Pills
             all_rooms_available = sorted([int(r) for r in filtered_df['rooms'].dropna().unique().tolist()])
-            # keep only reasonable room counts for the pills
             pill_rooms = [r for r in all_rooms_available if r <= 5]
+            if not pill_rooms:
+                pill_rooms = [1, 2, 3, 4, 5]
             
             st.write(t('room_count'))
-            if "rooms" not in st.session_state:
+            if "b_rooms" not in st.session_state:
                 qp_rooms = _qp_get_list(qp, "rooms", pill_rooms)
                 qp_rooms_int = []
                 for r in qp_rooms:
@@ -625,13 +741,14 @@ if project == "Bina.az":
                         qp_rooms_int.append(int(float(r)))
                     except Exception:
                         pass
-                st.session_state.rooms = [r for r in qp_rooms_int if r in pill_rooms] or pill_rooms
+                st.session_state.b_rooms = [r for r in qp_rooms_int if r in pill_rooms] or pill_rooms
+            _clean_pills_state('b_rooms', pill_rooms, pill_rooms)
             selected_rooms = st.pills(
                 t('room_count'), 
                 pill_rooms, 
                 selection_mode="multi",
                 label_visibility="collapsed",
-                key="rooms"
+                key="b_rooms"
             )
             if not selected_rooms:
                 st.stop()
@@ -639,17 +756,20 @@ if project == "Bina.az":
 
             # Property Category with Pills
             all_cats = sorted(filtered_df['category'].dropna().unique().tolist())
+            if not all_cats:
+                st.warning("No categories available for current filters.")
+                st.stop()
             st.write(t('prop_category'))
             
-            # Select All Categories toggle
-            if "categories" not in st.session_state:
-                st.session_state.categories = all_cats
+            if "b_categories" not in st.session_state:
+                st.session_state.b_categories = all_cats
+            _clean_pills_state('b_categories', all_cats, all_cats)
             
             is_all_cats = st.checkbox(t('select_all'), value=True, key="b_all_cats_check")
             
-            # Reset logic for the toggle
+            # Only override pills on checkbox transition, not every rerun
             if is_all_cats != st.session_state.get('_last_b_all_cats', True):
-                st.session_state.categories = all_cats if is_all_cats else []
+                st.session_state.b_categories = all_cats if is_all_cats else []
                 st.session_state._last_b_all_cats = is_all_cats
 
             selected_cats = st.pills(
@@ -657,7 +777,7 @@ if project == "Bina.az":
                 all_cats, 
                 selection_mode="multi",
                 label_visibility="collapsed",
-                key="categories"
+                key="b_categories"
             )
             if not selected_cats:
                 st.stop()
@@ -666,61 +786,53 @@ if project == "Bina.az":
             st.divider()
             
             # Price Filter
-            min_p = int(filtered_df['price_value'].min()) if not filtered_df.empty else 0
-            max_p = int(filtered_df['price_value'].max()) if not filtered_df.empty else 1000000
-            if "price" in st.session_state:
-                low, high = st.session_state.price
-                st.session_state.price = (max(min_p, min(max_p, low)), max(min_p, min(max_p, high)))
-            else:
-                st.session_state.price = _qp_get_range(qp, "price", (min_p, max_p), as_int=True)
-            selected_price = st.slider(f"{t('price_range')} (₼)", min_p, max_p, key="price")
+            min_p, max_p = _safe_slider_bounds(filtered_df, 'price_value', as_int=True, fallback_min=0, fallback_max=1000000)
+            _clamp_slider_state('b_price', min_p, max_p)
+            if "b_price" not in st.session_state:
+                st.session_state.b_price = _qp_get_range(qp, "price", (min_p, max_p), as_int=True)
+            selected_price = st.slider(f"{t('price_range')} (₼)", min_p, max_p, key="b_price")
             filtered_df = filtered_df[(filtered_df['price_value'] >= selected_price[0]) & (filtered_df['price_value'] <= selected_price[1])]
 
             # Area Filter
-            min_a = int(filtered_df['area_value'].min()) if not filtered_df.empty else 0
-            max_a = int(filtered_df['area_value'].max()) if not filtered_df.empty else 2000
-            if "area" in st.session_state:
-                low, high = st.session_state.area
-                st.session_state.area = (max(min_a, min(max_a, low)), max(min_a, min(max_a, high)))
-            else:
-                st.session_state.area = _qp_get_range(qp, "area", (min_a, max_a), as_int=True)
-            selected_area = st.slider(f"{t('area_range')} (m²)", min_a, max_a, key="area")
+            min_a, max_a = _safe_slider_bounds(filtered_df, 'area_value', as_int=True, fallback_min=0, fallback_max=2000)
+            _clamp_slider_state('b_area', min_a, max_a)
+            if "b_area" not in st.session_state:
+                st.session_state.b_area = _qp_get_range(qp, "area", (min_a, max_a), as_int=True)
+            selected_area = st.slider(f"{t('area_range')} (m²)", min_a, max_a, key="b_area")
             filtered_df = filtered_df[(filtered_df['area_value'] >= selected_area[0]) & (filtered_df['area_value'] <= selected_area[1])]
 
             # Unit Price Filter (Sale only)
             if selected_op == "Sale":
-                min_u = int(filtered_df['price_per_m2'].min()) if not filtered_df.empty else 0
-                max_u = int(filtered_df['price_per_m2'].max()) if not filtered_df.empty else 10000
-                if "price_m2" in st.session_state:
-                    low, high = st.session_state.price_m2
-                    st.session_state.price_m2 = (max(min_u, min(max_u, low)), max(min_u, min(max_u, high)))
-                else:
-                    st.session_state.price_m2 = _qp_get_range(qp, "price_m2", (min_u, max_u), as_int=True)
-                selected_u = st.slider(f"{t('unit_price_range')} (₼/m²)", min_u, max_u, key="price_m2")
+                min_u, max_u = _safe_slider_bounds(filtered_df, 'price_per_m2', as_int=True, fallback_min=0, fallback_max=10000)
+                _clamp_slider_state('b_price_m2', min_u, max_u)
+                if "b_price_m2" not in st.session_state:
+                    st.session_state.b_price_m2 = _qp_get_range(qp, "price_m2", (min_u, max_u), as_int=True)
+                selected_u = st.slider(f"{t('unit_price_range')} (₼/m²)", min_u, max_u, key="b_price_m2")
                 filtered_df = filtered_df[(filtered_df['price_per_m2'] >= selected_u[0]) & (filtered_df['price_per_m2'] <= selected_u[1])]
         
-        st.sidebar.info(t('showing_listings').format(len(filtered_df)))
+        st.info(t('showing_listings').format(len(filtered_df)))
 
     # --- Bina.az Metrics & Charts ---
     
     # KPI Row
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric(t('total_listings'), f"{len(filtered_df):,}")
+    listings_by_period = filtered_df.groupby('period', observed=True).size()
+    _render_kpi_by_period(m1, t('total_listings'), listings_by_period, "{:,.0f}")
     
     if selected_op == "Rent":
-         med_price = filtered_df['price_value'].median()
-         m2.metric(t('median_rent'), f"{med_price:,.0f} ₼")
-         avg_rooms = filtered_df['rooms'].mean()
-         m3.metric(t('avg_rooms'), f"{avg_rooms:.1f}")
-         avg_area = filtered_df['area_value'].mean()
-         m4.metric(t('avg_area'), f"{avg_area:.1f} m²")
+        med_price_by_period = filtered_df.groupby('period', observed=True)['price_value'].median()
+        _render_kpi_by_period(m2, t('median_rent'), med_price_by_period, "{:,.0f}", " ₼")
+        avg_rooms_by_period = filtered_df.groupby('period', observed=True)['rooms'].mean()
+        _render_kpi_by_period(m3, t('avg_rooms'), avg_rooms_by_period, "{:.1f}")
+        avg_area_by_period = filtered_df.groupby('period', observed=True)['area_value'].mean()
+        _render_kpi_by_period(m4, t('avg_area'), avg_area_by_period, "{:.1f}", " m²")
     else:
-         med_price_m2 = filtered_df['price_per_m2'].median()
-         m2.metric(t('median_price_m2'), f"{med_price_m2:,.0f} ₼")
-         med_total = filtered_df['price_value'].median()
-         m3.metric(t('median_total'), f"{med_total:,.0f} ₼")
-         avg_area = filtered_df['area_value'].mean()
-         m4.metric(t('avg_area'), f"{avg_area:.1f} m²")
+        med_price_m2_by_period = filtered_df.groupby('period', observed=True)['price_per_m2'].median()
+        _render_kpi_by_period(m2, t('median_price_m2'), med_price_m2_by_period, "{:,.0f}", " ₼")
+        med_total_by_period = filtered_df.groupby('period', observed=True)['price_value'].median()
+        _render_kpi_by_period(m3, t('median_total'), med_total_by_period, "{:,.0f}", " ₼")
+        avg_area_by_period = filtered_df.groupby('period', observed=True)['area_value'].mean()
+        _render_kpi_by_period(m4, t('avg_area'), avg_area_by_period, "{:.1f}", " m²")
 
     # Tabs Layout
     tab1, tab2, tab3 = st.tabs([t('reg_analysis'), t('market_trends'), t('prop_details_tab')])
@@ -849,14 +961,11 @@ elif project == "Markets":
         st.stop()
 
     # Markets Slicers
-    with st.sidebar:
+    with sb_filters.container():
         with st.expander("💰 " + t('filter_price'), expanded=True):
-            min_p = float(df['price'].min())
-            max_p = float(df['price'].max())
-            if "m_price" in st.session_state:
-                low, high = st.session_state.m_price
-                st.session_state.m_price = (max(min_p, min(max_p, low)), max(min_p, min(max_p, high)))
-            else:
+            min_p, max_p = _safe_slider_bounds(df, 'price', as_int=False, fallback_min=0.0, fallback_max=1000.0)
+            _clamp_slider_state('m_price', min_p, max_p)
+            if "m_price" not in st.session_state:
                 st.session_state.m_price = (min_p, max_p)
             price_range = st.slider(t('price_range'), min_p, max_p, key="m_price")
             filtered_df = df[(df['price'] >= price_range[0]) & (df['price'] <= price_range[1])]
@@ -864,10 +973,14 @@ elif project == "Markets":
         with st.expander("📝 " + t('products'), expanded=True):
             # Category Filter
             all_cats = sorted(filtered_df['category'].dropna().unique().tolist())
+            if not all_cats:
+                st.warning("No categories available.")
+                st.stop()
             st.write(f"📂 {t('category')}")
             
             if "m_cats" not in st.session_state:
                 st.session_state.m_cats = all_cats
+            _clean_pills_state('m_cats', all_cats, all_cats)
             
             is_all_m_cats = st.checkbox(t('select_all'), value=True, key="m_all_cats_check")
             
@@ -884,7 +997,8 @@ elif project == "Markets":
             all_brands = filtered_df['brand'].value_counts().index.tolist()
             top_brands = all_brands[:50]
             if "m_brands" not in st.session_state:
-                 st.session_state.m_brands = []
+                st.session_state.m_brands = []
+            _clean_pills_state('m_brands', top_brands, [])
             
             st.write(f"🏷️ {t('brands')}")
             sel_brands = st.multiselect(t('brands'), top_brands, key="m_brands", placeholder=t('all_brands_placeholder'), label_visibility="collapsed")
@@ -895,14 +1009,19 @@ elif project == "Markets":
 
     # KPIs
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric(t('products'), f"{len(filtered_df):,}")
-    m2.metric(t('med_price'), f"{filtered_df['price'].median():.2f} ₼")
+    products_by_period = filtered_df.groupby('period', observed=True).size()
+    _render_kpi_by_period(m1, t('products'), products_by_period, "{:,.0f}")
+
+    med_price_by_period = filtered_df.groupby('period', observed=True)['price'].median()
+    _render_kpi_by_period(m2, t('med_price'), med_price_by_period, "{:.2f}", " ₼")
     
     if 'discount_percent' in filtered_df.columns:
         disc_items = filtered_df[filtered_df['discount_percent'] > 0]
-        avg_disc = disc_items['discount_percent'].mean()
-        m3.metric(t('avg_discount'), f"{avg_disc:.1f}%" if not pd.isna(avg_disc) else "0%")
-        m4.metric(t('discounted_items'), f"{len(disc_items):,}")
+        avg_disc_by_period = disc_items.groupby('period', observed=True)['discount_percent'].mean()
+        _render_kpi_by_period(m3, t('avg_discount'), avg_disc_by_period, "{:.1f}", "%")
+
+        disc_count_by_period = disc_items.groupby('period', observed=True).size()
+        _render_kpi_by_period(m4, t('discounted_items'), disc_count_by_period, "{:,.0f}")
     else:
         m3.metric(t('avg_discount'), "N/A")
         m4.metric(t('discounted_items'), "0")
@@ -948,7 +1067,7 @@ else: # Turbo.az
         st.stop()
     
     # Turbo.az Slicers
-    with st.sidebar:
+    with sb_filters.container():
         with st.expander("📅 " + t('filter_time'), expanded=True):
             available_periods = sorted(df['period'].unique().tolist())
             if "t_periods" not in st.session_state:
@@ -958,6 +1077,7 @@ else: # Turbo.az
             if not selected_periods:
                 st.stop()
             filtered_df = df[df['period'].isin(selected_periods)]
+            base_df = filtered_df.copy()
         
         with st.expander("🚘 " + t('filter_car'), expanded=True):
             if "t_min_ads" not in st.session_state:
@@ -965,33 +1085,35 @@ else: # Turbo.az
             min_ads = st.slider(t('min_ads_brand'), 1, 500, key="t_min_ads")
             all_brands = sorted(filtered_df['brand'].unique().tolist())
             
-            if "t_all_brands" not in st.session_state:
-                qp_all_brands = _qp_get_value(qp, "t_all_brands", "false")
-                st.session_state.t_all_brands = True if str(qp_all_brands).lower() == "true" else False
-            
-            # Checkbox for all brands
-            is_all_brands = st.checkbox(t('select_all_brands'), key="t_all_brands")
-            
-            # Initialize or reset brands based on checkbox
-            if "t_brands" not in st.session_state:
-                if is_all_brands:
-                    st.session_state.t_brands = all_brands
+            brand_modes = ["all", "top_10", "top_20", "custom"]
+            if "t_brand_mode" not in st.session_state:
+                qp_brand_mode = _qp_get_value(qp, "t_brand_mode", None)
+                qp_all_brands = _qp_get_value(qp, "t_all_brands", "true")
+                if qp_brand_mode in brand_modes:
+                    st.session_state.t_brand_mode = qp_brand_mode
                 else:
+                    st.session_state.t_brand_mode = "all" if str(qp_all_brands).lower() == "true" else "custom"
+
+            brand_mode = st.radio(
+                t('brand_selection_mode'),
+                brand_modes,
+                format_func=lambda x: t('all_brands') if x == "all" else t(x),
+                horizontal=True,
+                key="t_brand_mode"
+            )
+
+            if brand_mode == "all":
+                selected_brands = all_brands
+            elif brand_mode == "top_10":
+                selected_brands = filtered_df['brand'].value_counts().head(10).index.tolist()
+            elif brand_mode == "top_20":
+                selected_brands = filtered_df['brand'].value_counts().head(20).index.tolist()
+            else:
+                if "t_brands" not in st.session_state:
                     top_15 = filtered_df['brand'].value_counts().head(15).index.tolist()
                     qp_brands = _qp_get_list(qp, "t_brands", [])
                     st.session_state.t_brands = [b for b in qp_brands if b in all_brands] or sorted(top_15)
-                st.session_state._last_t_all_brands = is_all_brands
-            
-            # Detect checkbox change to force multi-select update
-            if is_all_brands != st.session_state.get('_last_t_all_brands', is_all_brands):
-                if is_all_brands:
-                    st.session_state.t_brands = all_brands
-                else:
-                    top_15 = filtered_df['brand'].value_counts().head(15).index.tolist()
-                    st.session_state.t_brands = sorted(top_15)
-                st.session_state._last_t_all_brands = is_all_brands
-
-            selected_brands = st.multiselect(t('brands'), all_brands, key="t_brands")
+                selected_brands = st.multiselect(t('brands'), all_brands, key="t_brands")
                 
             if not selected_brands:
                 st.stop()
@@ -999,33 +1121,24 @@ else: # Turbo.az
 
         with st.expander("💰 " + t('filter_price'), expanded=True):
             # Price Filter
-            min_p = int(filtered_df['price_value'].min()) if not filtered_df.empty else 0
-            max_p = int(filtered_df['price_value'].max()) if not filtered_df.empty else 1000000
-            if "t_price" in st.session_state:
-                # Clamp range to dynamic bounds
-                low, high = st.session_state.t_price
-                st.session_state.t_price = (max(min_p, min(max_p, low)), max(min_p, min(max_p, high)))
-            else:
+            min_p, max_p = _safe_slider_bounds(base_df, 'price_value', as_int=True, fallback_min=0, fallback_max=1000000)
+            _clamp_slider_state('t_price', min_p, max_p)
+            if "t_price" not in st.session_state:
                 st.session_state.t_price = _qp_get_range(qp, "t_price", (min_p, max_p), as_int=True)
             selected_price = st.slider(f"{t('price_range')} (₼)", min_p, max_p, key="t_price")
             filtered_df = filtered_df[(filtered_df['price_value'] >= selected_price[0]) & (filtered_df['price_value'] <= selected_price[1])]
 
             # Year Filter
-            min_y = int(filtered_df['year'].min()) if not filtered_df.empty else 1970
-            max_y = int(filtered_df['year'].max()) if not filtered_df.empty else 2026
-            if "t_year" in st.session_state:
-                # Clamp range to dynamic bounds
-                low, high = st.session_state.t_year
-                st.session_state.t_year = (max(min_y, min(max_y, low)), max(min_y, min(max_y, high)))
-            else:
+            min_y, max_y = _safe_slider_bounds(base_df, 'year', as_int=True, fallback_min=1970, fallback_max=2026)
+            _clamp_slider_state('t_year', min_y, max_y)
+            if "t_year" not in st.session_state:
                 st.session_state.t_year = _qp_get_range(qp, "t_year", (min_y, max_y), as_int=True)
             selected_year = st.slider(t('year_range'), min_y, max_y, key="t_year")
             filtered_df = filtered_df[(filtered_df['year'] >= selected_year[0]) & (filtered_df['year'] <= selected_year[1])]
 
             # Mileage Filter
-            max_m = int(filtered_df['mileage_value'].max()) if not filtered_df.empty else 500000
+            _, max_m = _safe_slider_bounds(base_df, 'mileage_value', as_int=True, fallback_min=0, fallback_max=500000)
             if "t_mileage" in st.session_state:
-                # Clamp to dynamic max
                 if st.session_state.t_mileage > max_m:
                     st.session_state.t_mileage = max_m
             else:
@@ -1034,15 +1147,19 @@ else: # Turbo.az
             filtered_df = filtered_df[filtered_df['mileage_value'] <= selected_mileage]
 
         with st.expander(t('filter_specs'), expanded=True):
+            # Compute all spec options from pre-specs data to avoid cascading staleness
+            specs_base = filtered_df.copy()
+            fuels = sorted(specs_base['fuel_type'].dropna().unique().tolist())
+            trans = sorted(specs_base['detail_transmission'].dropna().unique().tolist())
+            bodies = sorted(specs_base['detail_body_type'].dropna().unique().tolist())
+
             # Fuel Type
-            fuels = sorted(filtered_df['fuel_type'].dropna().unique().tolist())
             st.write(f"⛽ {t('fuel_type')}")
-            
             if "t_fuel" not in st.session_state:
                 st.session_state.t_fuel = fuels
+            _clean_pills_state('t_fuel', fuels, fuels)
                 
-            is_all_fuel = st.checkbox(t('select_all'), value=True, key="t_all_fuel_check")
-            
+            is_all_fuel = st.checkbox(t('select_all_fuel'), value=True, key="t_all_fuel_check")
             if is_all_fuel != st.session_state.get('_last_t_all_fuel', True):
                 st.session_state.t_fuel = fuels if is_all_fuel else []
                 st.session_state._last_t_all_fuel = is_all_fuel
@@ -1050,17 +1167,14 @@ else: # Turbo.az
             selected_fuel = st.pills(t('fuel_type'), fuels, selection_mode="multi", key="t_fuel", label_visibility="collapsed")
             if not selected_fuel:
                 st.stop()
-            filtered_df = filtered_df[filtered_df['fuel_type'].isin(selected_fuel)]
             
             # Transmission
-            trans = sorted(filtered_df['detail_transmission'].dropna().unique().tolist())
             st.write(f"⚙️ {t('transmission')}")
-            
             if "t_trans" not in st.session_state:
                 st.session_state.t_trans = trans
+            _clean_pills_state('t_trans', trans, trans)
                 
-            is_all_trans = st.checkbox(t('select_all'), value=True, key="t_all_trans_check")
-            
+            is_all_trans = st.checkbox(t('select_all_trans'), value=True, key="t_all_trans_check")
             if is_all_trans != st.session_state.get('_last_t_all_trans', True):
                 st.session_state.t_trans = trans if is_all_trans else []
                 st.session_state._last_t_all_trans = is_all_trans
@@ -1068,17 +1182,14 @@ else: # Turbo.az
             selected_trans = st.pills(t('transmission'), trans, selection_mode="multi", key="t_trans", label_visibility="collapsed")
             if not selected_trans:
                 st.stop()
-            filtered_df = filtered_df[filtered_df['detail_transmission'].isin(selected_trans)]
             
             # Body Type
-            bodies = sorted(filtered_df['detail_body_type'].dropna().unique().tolist())
             st.write(f"🚗 {t('body_type')}")
-            
             if "t_bodies" not in st.session_state:
                 st.session_state.t_bodies = bodies
+            _clean_pills_state('t_bodies', bodies, bodies)
                 
-            is_all_bodies = st.checkbox(t('select_all'), value=True, key="t_all_bodies_check")
-            
+            is_all_bodies = st.checkbox(t('select_all_bodies'), value=True, key="t_all_bodies_check")
             if is_all_bodies != st.session_state.get('_last_t_all_bodies', True):
                 st.session_state.t_bodies = bodies if is_all_bodies else []
                 st.session_state._last_t_all_bodies = is_all_bodies
@@ -1086,6 +1197,10 @@ else: # Turbo.az
             selected_bodies = st.pills(t('body_type'), bodies, selection_mode="multi", key="t_bodies", label_visibility="collapsed")
             if not selected_bodies:
                 st.stop()
+
+            # Apply all spec filters at once (non-cascading)
+            filtered_df = filtered_df[filtered_df['fuel_type'].isin(selected_fuel)]
+            filtered_df = filtered_df[filtered_df['detail_transmission'].isin(selected_trans)]
             filtered_df = filtered_df[filtered_df['detail_body_type'].isin(selected_bodies)]
         
         st.info(t('showing_ads').format(len(filtered_df)))
@@ -1094,10 +1209,17 @@ else: # Turbo.az
     
     # KPI Row
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric(t('total_ads'), f"{len(filtered_df):,}")
-    m2.metric(t('med_price'), f"{filtered_df['price_value'].median():,.0f} ₼")
-    m3.metric(t('avg_year'), f"{int(filtered_df['year'].mean())}")
-    m4.metric(t('avg_mileage'), f"{filtered_df['mileage_value'].mean():,.0f} km")
+    ads_by_period = filtered_df.groupby('period', observed=True).size()
+    _render_kpi_by_period(m1, t('total_ads'), ads_by_period, "{:,.0f}")
+
+    med_price_by_period = filtered_df.groupby('period', observed=True)['price_value'].median()
+    _render_kpi_by_period(m2, t('med_price'), med_price_by_period, "{:,.0f}", " ₼")
+
+    avg_year_by_period = filtered_df.groupby('period', observed=True)['year'].mean()
+    _render_kpi_by_period(m3, t('avg_year'), avg_year_by_period, "{:.0f}")
+
+    avg_mileage_by_period = filtered_df.groupby('period', observed=True)['mileage_value'].mean()
+    _render_kpi_by_period(m4, t('avg_mileage'), avg_mileage_by_period, "{:,.0f}", " km")
 
     # Tabs Layout
     tab1, tab2, tab3 = st.tabs([t('brand_price'), t('tech_specs'), t('age_trends')])
@@ -1212,12 +1334,20 @@ st.sidebar.download_button(
     mime='text/csv'
 )
 
-excel_data = convert_to_excel(filtered_df)
+current_export_key = (project, len(filtered_df))
+if st.session_state.get("excel_export_key") != current_export_key:
+    st.session_state.excel_data = None
+    st.session_state.excel_export_key = current_export_key
+
+if st.sidebar.button(t('prepare_excel')):
+    st.session_state.excel_data = convert_to_excel(filtered_df)
+
 st.sidebar.download_button(
     label=t('download_excel'),
-    data=excel_data,
+    data=st.session_state.excel_data or b"",
     file_name=f"{project.lower()}_filtered.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    disabled=st.session_state.excel_data is None
 )
 
 st.sidebar.divider()
@@ -1229,13 +1359,13 @@ _qp_set_param(params, "lang", st.session_state.get("lang"))
 _qp_set_param(params, "project", project)
 
 if project == "Bina.az":
-    _qp_set_param(params, "op", st.session_state.get("op_type"))
-    _qp_set_param(params, "periods", st.session_state.get("periods"))
-    _qp_set_param(params, "min_ads_region", st.session_state.get("min_ads_region"))
-    _qp_set_param(params, "reg_mode", st.session_state.get("reg_mode"))
-    _qp_set_param(params, "regions", st.session_state.get("regions"))
-    _qp_set_param(params, "rooms", st.session_state.get("rooms"))
-    _qp_set_param(params, "categories", st.session_state.get("categories"))
+    _qp_set_param(params, "op", st.session_state.get("b_op_type"))
+    _qp_set_param(params, "periods", st.session_state.get("b_periods"))
+    _qp_set_param(params, "min_ads_region", st.session_state.get("b_min_ads_region"))
+    _qp_set_param(params, "reg_mode", st.session_state.get("b_reg_mode"))
+    _qp_set_param(params, "regions", st.session_state.get("b_regions"))
+    _qp_set_param(params, "rooms", st.session_state.get("b_rooms"))
+    _qp_set_param(params, "categories", st.session_state.get("b_categories"))
 elif project == "Markets":
     _qp_set_param(params, "m_price", st.session_state.get("m_price"))
     _qp_set_param(params, "m_cats", st.session_state.get("m_cats"))
@@ -1243,7 +1373,7 @@ elif project == "Markets":
 else:
     _qp_set_param(params, "t_periods", st.session_state.get("t_periods"))
     _qp_set_param(params, "t_min_ads", st.session_state.get("t_min_ads"))
-    _qp_set_param(params, "t_all_brands", st.session_state.get("t_all_brands"))
+    _qp_set_param(params, "t_brand_mode", st.session_state.get("t_brand_mode"))
     _qp_set_param(params, "t_brands", st.session_state.get("t_brands"))
     _qp_set_param(params, "t_price", st.session_state.get("t_price"))
     _qp_set_param(params, "t_year", st.session_state.get("t_year"))
