@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 data/*
+
+# MCP files
+.playwright-mcp/
