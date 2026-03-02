@@ -516,7 +516,7 @@ def load_bina_data():
     all_files = []
     for root, dirs, files in os.walk(base_path):
         for file in files:
-            if file.endswith(".csv") and "bina_" in file:
+            if file.endswith(".parquet") and "bina_" in file:
                 full_path = os.path.join(root, file)
                 is_rent = "rent" in full_path.lower() or "rent" in file.lower()
                 op_type = "Rent" if is_rent else "Sale"
@@ -540,8 +540,8 @@ def load_bina_data():
     ]
     for f in all_files:
         try:
-            # use pyarrow engine for 10x speed on large CSVs
-            df = pd.read_csv(f["path"], usecols=cols, engine="pyarrow")
+            # Load Parquet file - much faster and smaller
+            df = pd.read_parquet(f["path"], columns=cols)
 
             # Filter for Baku only immediately to reduce memory churn
             df = df[df["city_name"] == "Bakı"].copy()
@@ -595,13 +595,13 @@ def load_markets_data():
         return pd.DataFrame()
     for root, dirs, files in os.walk(base_path):
         for file in files:
-            if file.endswith(".csv"):
+            if file.endswith(".parquet"):
                 all_files.append(os.path.join(root, file))
 
     data_frames = []
     for f in all_files:
         try:
-            df = pd.read_csv(f)
+            df = pd.read_parquet(f)
             if "timestamp" in df.columns:
                 df["date"] = pd.to_datetime(df["timestamp"], errors="coerce")
                 # Create YYYY-MM period
@@ -659,7 +659,7 @@ def load_turbo_data():
     if not os.path.exists(base_path):
         return pd.DataFrame()
     for file in os.listdir(base_path):
-        if file.endswith(".csv"):
+        if file.endswith(".parquet"):
             full_path = os.path.join(base_path, file)
             match = re.search(r"(\d{4}-\d{2})", file)
             date_period = match.group(1) if match else "Unknown"
@@ -701,12 +701,22 @@ def load_turbo_data():
 
     for f in all_files:
         try:
-            # Read header once to avoid skipping files with missing columns
-            header_cols = pd.read_csv(f["path"], nrows=0).columns
-            use_cols = [c for c in cols if c in header_cols]
-
-            # Use pyarrow for extreme speed
-            df = pd.read_csv(f["path"], usecols=use_cols, engine="pyarrow")
+            # Read Parquet file with only essential columns
+            df = pd.read_parquet(
+                f["path"],
+                columns=[
+                    c
+                    for c in cols
+                    if c in pd.read_parquet(f["path"], nrows=0).columns
+                    if False
+                ]
+                or None,
+            )
+            # Note: Parquet handles column selection efficiently.
+            # I'll simplify the read call since parquet stores schema.
+            df = pd.read_parquet(f["path"])
+            # Filter columns to only what we need to save memory
+            df = df[[c for c in cols if c in df.columns]].copy()
 
             # Fast vectorized string cleaning
             if "price" in df.columns:

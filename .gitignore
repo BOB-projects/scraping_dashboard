@@ -8,7 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
-data/*
+# Data files (ignore large originals, keep compressed parquet)
+data/**/*.csv
+data/**/*.xlsx
+data/**/*.json
 
 # MCP files
 .playwright-mcp/
