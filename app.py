@@ -540,8 +540,10 @@ def load_bina_data():
     ]
     for f in all_files:
         try:
-            # Load Parquet file - much faster and smaller
-            df = pd.read_parquet(f["path"], columns=cols)
+            # Load Parquet file efficiently
+            df = pd.read_parquet(f["path"])
+            # Load only required columns that actually exist
+            df = df[[c for c in cols if c in df.columns]].copy()
 
             # Filter for Baku only immediately to reduce memory churn
             df = df[df["city_name"] == "Bakı"].copy()
@@ -701,19 +703,7 @@ def load_turbo_data():
 
     for f in all_files:
         try:
-            # Read Parquet file with only essential columns
-            df = pd.read_parquet(
-                f["path"],
-                columns=[
-                    c
-                    for c in cols
-                    if c in pd.read_parquet(f["path"], nrows=0).columns
-                    if False
-                ]
-                or None,
-            )
-            # Note: Parquet handles column selection efficiently.
-            # I'll simplify the read call since parquet stores schema.
+            # Read Parquet file efficiently
             df = pd.read_parquet(f["path"])
             # Filter columns to only what we need to save memory
             df = df[[c for c in cols if c in df.columns]].copy()
