@@ -816,6 +816,7 @@ if project == "Bina.az":
             if not selected_periods:
                 st.stop()
             filtered_df = filtered_df[filtered_df["period"].isin(selected_periods)]
+            base_df = filtered_df.copy()
 
         with st.expander("📍 " + t("location"), expanded=True):
             if "b_min_ads_region" not in st.session_state:
@@ -824,7 +825,7 @@ if project == "Bina.az":
                 )
             min_ads = st.slider(t("min_ads_region"), 1, 1000, key="b_min_ads_region")
 
-            all_regions = sorted(filtered_df["location_name"].unique().tolist())
+            all_regions = sorted(base_df["location_name"].unique().tolist())
             reg_modes = ["all_regions", "top_10", "top_20", "custom"]
             if "b_reg_mode" not in st.session_state:
                 qp_reg = _qp_get_value(qp, "reg_mode", "all_regions")
@@ -871,7 +872,7 @@ if project == "Bina.az":
         with st.expander("🏠 " + t("prop_details"), expanded=True):
             # Room Count with Pills
             all_rooms_available = sorted(
-                [int(r) for r in filtered_df["rooms"].dropna().unique().tolist()]
+                [int(r) for r in base_df["rooms"].dropna().unique().tolist()]
             )
             pill_rooms = [r for r in all_rooms_available if r <= 5]
             if not pill_rooms:
@@ -902,7 +903,7 @@ if project == "Bina.az":
             filtered_df = filtered_df[filtered_df["rooms"].isin(selected_rooms)]
 
             # Property Category with Pills
-            all_cats = sorted(filtered_df["category"].dropna().unique().tolist())
+            all_cats = sorted(base_df["category"].dropna().unique().tolist())
             if not all_cats:
                 st.warning("No categories available for current filters.")
                 st.stop()
@@ -936,7 +937,7 @@ if project == "Bina.az":
 
             # Price Filter
             min_p, max_p = _safe_slider_bounds(
-                filtered_df,
+                base_df,
                 "price_value",
                 as_int=True,
                 fallback_min=0,
@@ -957,7 +958,7 @@ if project == "Bina.az":
 
             # Area Filter
             min_a, max_a = _safe_slider_bounds(
-                filtered_df,
+                base_df,
                 "area_value",
                 as_int=True,
                 fallback_min=0,
@@ -979,7 +980,7 @@ if project == "Bina.az":
             # Unit Price Filter (Sale only)
             if selected_op == "Sale":
                 min_u, max_u = _safe_slider_bounds(
-                    filtered_df,
+                    base_df,
                     "price_per_m2",
                     as_int=True,
                     fallback_min=0,
@@ -1298,10 +1299,11 @@ elif project == "Markets":
                 st.warning("Please select at least one month.")
                 st.stop()
             df = df[df["period"].isin(selected_periods)]
+            base_df = df.copy()
 
         with st.expander("💰 " + t("filter_price"), expanded=True):
             min_p, max_p = _safe_slider_bounds(
-                df, "price", as_int=False, fallback_min=0.0, fallback_max=1000.0
+                base_df, "price", as_int=False, fallback_min=0.0, fallback_max=1000.0
             )
             _clamp_slider_state("m_price", min_p, max_p)
             if "m_price" not in st.session_state:
@@ -1313,7 +1315,7 @@ elif project == "Markets":
 
         with st.expander("📝 " + t("products"), expanded=True):
             # Category Filter
-            all_cats = sorted(filtered_df["category"].dropna().unique().tolist())
+            all_cats = sorted(base_df["category"].dropna().unique().tolist())
             if not all_cats:
                 st.warning("No categories available.")
                 st.stop()
@@ -1343,7 +1345,7 @@ elif project == "Markets":
             filtered_df = filtered_df[filtered_df["category"].isin(sel_cats)]
 
             # Brand Filter (Top 50 to avoid clutter)
-            all_brands = filtered_df["brand"].value_counts().index.tolist()
+            all_brands = base_df["brand"].value_counts().index.tolist()
             top_brands = all_brands[:50]
             if "m_brands" not in st.session_state:
                 st.session_state.m_brands = []
@@ -1686,10 +1688,9 @@ else:  # Turbo.az
 
         with st.expander(t("filter_specs"), expanded=True):
             # Compute all spec options from pre-specs data to avoid cascading staleness
-            specs_base = filtered_df.copy()
-            fuels = sorted(specs_base["fuel_type"].dropna().unique().tolist())
-            trans = sorted(specs_base["detail_transmission"].dropna().unique().tolist())
-            bodies = sorted(specs_base["detail_body_type"].dropna().unique().tolist())
+            fuels = sorted(base_df["fuel_type"].dropna().unique().tolist())
+            trans = sorted(base_df["detail_transmission"].dropna().unique().tolist())
+            bodies = sorted(base_df["detail_body_type"].dropna().unique().tolist())
 
             # Fuel Type
             st.write(f"⛽ {t('fuel_type')}")
