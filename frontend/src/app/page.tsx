@@ -625,7 +625,17 @@ export default function Home() {
     tick: isLight ? "#52525b" : "#71717a",
   };
 
-  // Sync theme class to <html> for Tailwind dark: variants
+  // 1. Initial theme load from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("dashboard-theme") as "dark" | "light" | null;
+    if (saved) {
+      setTheme(saved);
+    } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+      setTheme("light");
+    }
+  }, []);
+
+  // 2. Sync theme class to <html> and save to localStorage
   useEffect(() => {
     const root = document.documentElement;
     if (theme === "dark") {
@@ -635,6 +645,7 @@ export default function Home() {
       root.classList.remove("dark");
       root.classList.add("light");
     }
+    localStorage.setItem("dashboard-theme", theme);
   }, [theme]);
 
   const checkboxUi = {
