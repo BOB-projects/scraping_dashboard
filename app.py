@@ -427,6 +427,34 @@ def _period_sort_key(p):
         return (0, 0)
 
 
+def _period_to_date(series):
+    if series is None:
+        return pd.Series(dtype="datetime64[ns]")
+    return pd.to_datetime(series.astype(str) + "-01", format="%Y-%m-%d", errors="coerce")
+
+
+def _add_percent_change(df, value_col):
+    out = df.copy()
+    prev = out[value_col].shift(1)
+    out["pct_change"] = ((out[value_col] - prev) / prev) * 100
+    out.loc[prev == 0, "pct_change"] = pd.NA
+    out["pct_change"] = out["pct_change"].fillna(0.0)
+
+    def _label(val):
+        if pd.isna(val):
+            return "No previous period"
+        if val < 0:
+            return f"{abs(val):.2f}% drop"
+        if val > 0:
+            return f"{abs(val):.2f}% rise"
+        return "0.00% no change"
+
+    out["pct_change_label"] = out["pct_change"].apply(_label)
+    if not out.empty:
+        out.loc[out.index[0], "pct_change_label"] = "No previous period"
+    return out
+
+
 def _format_period_values(series, fmt):
     if series is None or series.empty:
         return None, None
@@ -1061,57 +1089,39 @@ if project == "Bina.az":
             )
             .reset_index()
         )
-        region_stats = region_stats[region_stats["count"] >= min_ads]
-
-        order_col = "median_total" if selected_op == "Rent" else "median_m2"
-        order = (
-            region_stats.groupby("location_name", observed=True)[order_col]
-            .median()
-            .sort_values(ascending=True)
+        eligible_regions = (
+            region_stats.groupby("location_name", observed=True)["count"].sum()
+            .loc[lambda s: s >= min_ads]
             .index
+            .tolist()
         )
-        region_stats["location_name"] = pd.Categorical(
-            region_stats["location_name"], categories=order, ordered=True
-        )
-        region_stats = region_stats.sort_values("location_name")
 
-        h = max(500, len(region_stats["location_name"].unique()) * 25 + 100)
-
-        fig_reg = px.bar(
-            region_stats,
-            y="location_name",
-            x=metric_col,
-            color="period",
-            barmode="group",
-            orientation="h",
-            title=f"Median {metric_label} by Region",
-            height=h,
-            hover_data={"count": True},
-            template="plotly_white",
-        )
-        st.plotly_chart(fig_reg, width="stretch")
-
-        if selected_op == "Sale":
-            st.divider()
-            chart_title = f"{t('median_total' if selected_op == 'Rent' else 'median_price_m2')} ({t(selected_op)}) - {t('reg_analysis')}"
-            fig_total = px.bar(
-                region_stats,
-                y="location_name",
-                x="median_total",
-                color="period",
-                barmode="group",
-                orientation="h",
-                title=chart_title,
-                height=h,
-                labels={
-                    "location_name": t("location"),
-                    "median_total": t("median_total"),
-                    "period": t("filter_time"),
-                },
-                hover_data={"count": True},
-                template="plotly_white",
+        if not eligible_regions:
+            st.warning(t("warning_region"))
+        else:
+            regional_agg = (
+                filtered_df[filtered_df["location_name"].isin(eligible_regions)]
+                .groupby("period", observed=True)
+                .agg(
+                    median_m2=("price_per_m2", "median"),
+                    median_total=("price_value", "median"),
+                )
+                .reset_index()
             )
-            st.plotly_chart(fig_total, width="stretch")
+            regional_agg["period_date"] = _period_to_date(regional_agg["period"])
+            regional_agg = regional_agg.sort_values("period_date")
+
+            fig_reg = px.line(
+                regional_agg,
+                x="period_date",
+                y=metric_col,
+                markers=True,
+                title=f"Median {metric_label} (Selected Regions)",
+                template="plotly_white",
+                labels={"period_date": t("filter_time")},
+            )
+            fig_reg.update_xaxes(dtick="M1", tickformat="%b %Y")
+            st.plotly_chart(fig_reg, width="stretch", key="bina_regional_trend")
 
     with tab2:
         st.subheader(t("price_movement"))
@@ -1124,15 +1134,17 @@ if project == "Bina.az":
             )
             .reset_index()
         )
+        trend_stats["period_date"] = _period_to_date(trend_stats["period"])
+        trend_stats = trend_stats.sort_values("period_date")
 
         trend_y = "median_total" if selected_op == "Rent" else "median_m2"
         fig_trend = px.line(
             trend_stats,
-            x="period",
+            x="period_date",
             y=trend_y,
             markers=True,
             labels={
-                "period": t("filter_time"),
+                "period_date": t("filter_time"),
                 trend_y: t(
                     "median_total" if selected_op == "Rent" else "median_price_m2"
                 ),
@@ -1140,7 +1152,25 @@ if project == "Bina.az":
             title=f"{t('price_movement')} ({t(selected_op)})",
             template="plotly_white",
         )
-        st.plotly_chart(fig_trend, width="stretch")
+        fig_trend.update_xaxes(dtick="M1", tickformat="%b %Y")
+        st.plotly_chart(fig_trend, width="stretch", key="bina_price_trend")
+
+        trend_pct = _add_percent_change(
+            trend_stats[["period_date", trend_y]].copy(), trend_y
+        )
+        fig_trend_pct = px.line(
+            trend_pct,
+            x="period_date",
+            y="pct_change",
+            markers=True,
+            labels={"period_date": t("filter_time"), "pct_change": "%"},
+            title="Percent Change (%) (+ rise / - drop)",
+            template="plotly_white",
+            custom_data=["pct_change_label"],
+        )
+        fig_trend_pct.update_traces(hovertemplate="%{x|%b %Y}<br>%{customdata[0]}<extra></extra>")
+        fig_trend_pct.update_xaxes(dtick="M1", tickformat="%b %Y")
+        st.plotly_chart(fig_trend_pct, width="stretch", key="bina_price_trend_pct")
 
     with tab3:
         c1, c2 = st.columns(2)
@@ -1169,7 +1199,7 @@ if project == "Bina.az":
                 barmode="overlay",
                 template="plotly_white",
             )
-            st.plotly_chart(fig_dist, width="stretch")
+            st.plotly_chart(fig_dist, width="stretch", key="bina_price_distribution")
 
         with c2:
             st.markdown(f"##### {t('rooms_analysis')}")
@@ -1207,7 +1237,7 @@ if project == "Bina.az":
                 template="plotly_white",
                 color_discrete_map=period_colors,
             )
-            st.plotly_chart(fig_room, width="stretch")
+            st.plotly_chart(fig_room, width="stretch", key="bina_rooms_trend")
 
         st.divider()
         st.subheader(t("cat_breakdown"))
@@ -1241,16 +1271,16 @@ if project == "Bina.az":
             cat_stats["category"], categories=cat_order, ordered=True
         )
 
-        fig_cat = px.bar(
-            cat_stats.sort_values("category"),
+        fig_cat = px.line(
+            cat_stats.sort_values(["period", "category"]),
             x="category",
             y=cat_metric,
             color="period",
-            barmode="group",
+            markers=True,
             title=f"Median {metric_label} by Category",
             template="plotly_white",
         )
-        st.plotly_chart(fig_cat, width="stretch")
+        st.plotly_chart(fig_cat, width="stretch", key="bina_category_trend")
 
 elif project == "Markets":
     try:
@@ -1399,49 +1429,40 @@ elif project == "Markets":
     )
 
     with tab1:
-        # Comparative Category Analysis
-        cat_period_stats = (
-            filtered_df.groupby(["category", "period"], observed=True)
-            .size()
-            .reset_index(name="count")
+        market_trend = (
+            filtered_df.groupby("period", observed=True)
+            .agg(median_price=("price", "median"), product_count=("price", "count"))
+            .reset_index()
         )
+        market_trend["period_date"] = _period_to_date(market_trend["period"])
+        market_trend = market_trend.sort_values("period_date")
 
-        # Add median price for hover data
-        cat_median = (
-            filtered_df.groupby(["category", "period"], observed=True)["price"]
-            .median()
-            .reset_index(name="median_price")
-        )
-        cat_period_stats = pd.merge(
-            cat_period_stats, cat_median, on=["category", "period"]
-        )
-
-        # Filter out zero counts and sort by total count across periods for better visual
-        total_counts = (
-            cat_period_stats.groupby("category", observed=True)["count"]
-            .sum()
-            .sort_values(ascending=True)
-        )
-        cat_period_stats["category"] = pd.Categorical(
-            cat_period_stats["category"], categories=total_counts.index, ordered=True
-        )
-        cat_period_stats = cat_period_stats[cat_period_stats["count"] > 0].sort_values(
-            "category"
-        )
-
-        fig_cat = px.bar(
-            cat_period_stats,
-            y="category",
-            x="count",
-            color="period",
-            barmode="group",
-            orientation="h",
-            title=t("num_products_cat"),
+        fig_market_price = px.line(
+            market_trend,
+            x="period_date",
+            y="median_price",
+            markers=True,
+            title=t("med_price"),
             template="plotly_white",
-            hover_data=["median_price"],
-            category_orders={"period": sorted(selected_periods, key=_period_sort_key)},
+            labels={"median_price": t("med_price"), "period_date": t("filter_time")},
         )
-        st.plotly_chart(fig_cat, width="stretch")
+        fig_market_price.update_xaxes(dtick="M1", tickformat="%b %Y")
+        st.plotly_chart(fig_market_price, width="stretch", key="markets_price_trend")
+
+        market_trend_pct = _add_percent_change(market_trend, "median_price")
+        fig_market_pct = px.line(
+            market_trend_pct,
+            x="period_date",
+            y="pct_change",
+            markers=True,
+            title="Percent Change (%) (+ rise / - drop)",
+            labels={"period_date": t("filter_time"), "pct_change": "%"},
+            template="plotly_white",
+            custom_data=["pct_change_label"],
+        )
+        fig_market_pct.update_traces(hovertemplate="%{x|%b %Y}<br>%{customdata[0]}<extra></extra>")
+        fig_market_pct.update_xaxes(dtick="M1", tickformat="%b %Y")
+        st.plotly_chart(fig_market_pct, width="stretch", key="markets_price_trend_pct")
 
         st.subheader(t("price_dist_cat"))
         fig_box = px.box(
@@ -1454,7 +1475,7 @@ elif project == "Markets":
             category_orders={"period": sorted(selected_periods, key=_period_sort_key)},
         )
         fig_box.update_xaxes(tickangle=45)
-        st.plotly_chart(fig_box, width="stretch")
+        st.plotly_chart(fig_box, width="stretch", key="markets_price_distribution")
 
     with tab2:
         st.subheader(t("top_brands_presence"))
@@ -1489,18 +1510,20 @@ elif project == "Markets":
             brand_period_stats, brand_median, on=["brand", "period"]
         )
 
-        fig_brand = px.bar(
-            brand_period_stats,
-            x="brand",
+        # Line chart: one line per brand, X = period
+        brand_period_stats["period_date"] = _period_to_date(brand_period_stats["period"])
+        fig_brand = px.line(
+            brand_period_stats.sort_values("period_date"),
+            x="period_date",
             y="count",
-            color="period",
-            barmode="group",
+            color="brand",
+            markers=True,
             title=t("top_20_brands"),
             template="plotly_white",
-            hover_data=["median_price"],
-            category_orders={"period": sorted(selected_periods, key=_period_sort_key)},
+            labels={"count": t("products"), "period_date": t("filter_time")},
         )
-        st.plotly_chart(fig_brand, width="stretch")
+        fig_brand.update_xaxes(dtick="M1", tickformat="%b %Y")
+        st.plotly_chart(fig_brand, width="stretch", key="markets_top_brands_trend")
 
     with tab3:
         st.subheader(f"📈 {t('brand_comparison')}")
@@ -1535,28 +1558,31 @@ elif project == "Markets":
         col1, col2 = st.columns(2)
 
         with col1:
-            fig_count = px.bar(
-                comp_stats,
-                x="source",
+            comp_stats["period_date"] = _period_to_date(comp_stats["period"])
+            fig_count = px.line(
+                comp_stats.sort_values("period_date"),
+                x="period_date",
                 y="product_count",
-                color="period",
-                barmode="group",
+                color="source",
+                markers=True,
                 title=t("total_listings"),
                 template="plotly_white",
             )
-            st.plotly_chart(fig_count, width="stretch")
+            fig_count.update_xaxes(dtick="M1", tickformat="%b %Y")
+            st.plotly_chart(fig_count, width="stretch", key="markets_source_count_trend")
 
         with col2:
-            fig_price = px.bar(
-                comp_stats,
-                x="source",
+            fig_price = px.line(
+                comp_stats.sort_values("period_date"),
+                x="period_date",
                 y="median_price",
-                color="period",
-                barmode="group",
+                color="source",
+                markers=True,
                 title=t("med_price"),
                 template="plotly_white",
             )
-            st.plotly_chart(fig_price, width="stretch")
+            fig_price.update_xaxes(dtick="M1", tickformat="%b %Y")
+            st.plotly_chart(fig_price, width="stretch", key="markets_source_price_trend")
 
 else:  # Turbo.az
     df = load_turbo_data()
@@ -1803,31 +1829,51 @@ else:  # Turbo.az
             .agg(median_price=("price_value", "median"), count=("price_value", "count"))
             .reset_index()
         )
-        brand_stats = brand_stats[brand_stats["count"] >= min_ads]
-        brand_order = (
-            brand_stats.groupby("brand", observed=True)["median_price"]
-            .median()
-            .sort_values(ascending=True)
+        eligible_brands = (
+            brand_stats.groupby("brand", observed=True)["count"].sum()
+            .loc[lambda s: s >= min_ads]
             .index
+            .tolist()
         )
-        brand_stats["brand"] = pd.Categorical(
-            brand_stats["brand"], categories=brand_order, ordered=True
-        )
-        h = max(500, len(brand_stats["brand"].unique()) * 25 + 100)
 
-        fig_brand = px.bar(
-            brand_stats.sort_values("brand"),
-            y="brand",
-            x="median_price",
-            color="period",
-            barmode="group",
-            orientation="h",
-            title=t("brand_market_overview"),
-            height=h,
-            hover_data={"count": True},
-            template="plotly_white",
-        )
-        st.plotly_chart(fig_brand, width="stretch")
+        if not eligible_brands:
+            st.warning("No brands meet the minimum ad threshold.")
+        else:
+            turbo_trend = (
+                filtered_df[filtered_df["brand"].isin(eligible_brands)]
+                .groupby("period", observed=True)
+                .agg(median_price=("price_value", "median"))
+                .reset_index()
+            )
+            turbo_trend["period_date"] = _period_to_date(turbo_trend["period"])
+            turbo_trend = turbo_trend.sort_values("period_date")
+
+            fig_brand = px.line(
+                turbo_trend,
+                x="period_date",
+                y="median_price",
+                markers=True,
+                title=t("brand_market_overview"),
+                template="plotly_white",
+                labels={"median_price": t("med_price"), "period_date": t("filter_time")},
+            )
+            fig_brand.update_xaxes(dtick="M1", tickformat="%b %Y")
+            st.plotly_chart(fig_brand, width="stretch", key="turbo_price_trend")
+
+            turbo_trend = _add_percent_change(turbo_trend, "median_price")
+            fig_brand_pct = px.line(
+                turbo_trend,
+                x="period_date",
+                y="pct_change",
+                markers=True,
+                title="Percent Change (%) (+ rise / - drop)",
+                labels={"period_date": t("filter_time"), "pct_change": "%"},
+                template="plotly_white",
+                custom_data=["pct_change_label"],
+            )
+            fig_brand_pct.update_traces(hovertemplate="%{x|%b %Y}<br>%{customdata[0]}<extra></extra>")
+            fig_brand_pct.update_xaxes(dtick="M1", tickformat="%b %Y")
+            st.plotly_chart(fig_brand_pct, width="stretch", key="turbo_price_trend_pct")
 
         st.divider()
         st.subheader(t("body_type_analysis"))
@@ -1846,16 +1892,17 @@ else:  # Turbo.az
             .reset_index()
         )
 
-        fig_cat = px.bar(
-            cat_stats,
+        fig_cat = px.line(
+            cat_stats.sort_values(["period", "detail_body_type"]),
             x="detail_body_type",
             y="median_price",
             color="period",
-            barmode="group",
+            markers=True,
             title=t("body_type_analysis"),
             template="plotly_white",
+            labels={"detail_body_type": t("body_type"), "median_price": t("med_price")},
         )
-        st.plotly_chart(fig_cat, width="stretch")
+        st.plotly_chart(fig_cat, width="stretch", key="turbo_body_type_trend")
 
     with tab2:
         st.subheader(t("engine_fuel"))
@@ -1872,16 +1919,17 @@ else:  # Turbo.az
             )
             fuel_stats = fuel_stats[fuel_stats["count"] >= min_ads]
 
-            fig_fuel = px.bar(
-                fuel_stats,
+            fig_fuel = px.line(
+                fuel_stats.sort_values(["period", "fuel_type"]),
                 x="fuel_type",
                 y="median_price",
                 color="period",
-                barmode="group",
+                markers=True,
                 title=t("fuel_type"),
                 template="plotly_white",
+                labels={"fuel_type": t("fuel_type"), "median_price": t("med_price")},
             )
-            st.plotly_chart(fig_fuel, width="stretch")
+            st.plotly_chart(fig_fuel, width="stretch", key="turbo_fuel_trend")
 
         with c2:
             # Clean up engine volume (ignore outliers > 8L)
@@ -1907,7 +1955,7 @@ else:  # Turbo.az
                 title="Price vs Engine Volume (L)",
                 template="plotly_white",
             )
-            st.plotly_chart(fig_eng, width="stretch")
+            st.plotly_chart(fig_eng, width="stretch", key="turbo_engine_trend")
 
     with tab3:
         st.subheader(t("depreciation"))
@@ -1933,16 +1981,17 @@ else:  # Turbo.az
             year_stats["year_bucket"], categories=year_order, ordered=True
         )
 
-        fig_year = px.bar(
+        fig_year = px.line(
             year_stats.sort_values("year_bucket"),
             x="year_bucket",
             y="median_price",
             color="period",
-            barmode="group",
+            markers=True,
             title=t("price_by_year"),
             template="plotly_white",
+            labels={"year_bucket": t("year_range"), "median_price": t("med_price")},
         )
-        st.plotly_chart(fig_year, width="stretch")
+        st.plotly_chart(fig_year, width="stretch", key="turbo_year_trend")
 
         st.divider()
 
@@ -1965,7 +2014,7 @@ else:  # Turbo.az
             title=t("price_vs_mileage"),
             template="plotly_white",
         )
-        st.plotly_chart(fig_mil, width="stretch")
+        st.plotly_chart(fig_mil, width="stretch", key="turbo_mileage_trend")
 
 # --- Export Section ---
 st.sidebar.divider()
