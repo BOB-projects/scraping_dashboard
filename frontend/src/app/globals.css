@@ -20,3 +20,42 @@ body {
   color: var(--foreground);
   font-family: Inter, Segoe UI, Arial, Helvetica, sans-serif;
 }
+
+/* ── Dual-thumb range slider ───────────────────────────────── */
+.range-thumb {
+  position: absolute;
+  inset: -6px 0;
+  width: 100%;
+  height: calc(100% + 12px);
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+}
+.range-thumb::-webkit-slider-runnable-track { background: transparent; }
+.range-thumb::-moz-range-track { background: transparent; }
+.range-thumb::-webkit-slider-thumb {
+  pointer-events: all;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2.5px solid #3b82f6;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: 0 1px 6px rgba(59,130,246,0.35);
+}
+.range-thumb::-moz-range-thumb {
+  pointer-events: all;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2.5px solid #3b82f6;
+  cursor: pointer;
+  box-shadow: 0 1px 6px rgba(59,130,246,0.35);
+}
+.dark .range-thumb::-webkit-slider-thumb { background: #18181b; }
+.dark .range-thumb::-moz-range-thumb     { background: #18181b; }

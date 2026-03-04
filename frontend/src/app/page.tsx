@@ -121,7 +121,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     byRooms: "By room count",
     bySource: "By source",
     byFuelType: "By fuel type",
+    byRegion: "By region",
+    byCategory: "By category",
+    byBrand: "By brand",
+    byBodyType: "By body type",
+    byTransmission: "By transmission",
+    groupBy: "Group by",
     countLabel: "Count",
+    activeFilters: "active filters",
+    filters: "Filters",
+    totalLoaded: "total loaded",
   },
   az: {
     marketAnalytics: "Bazar Analitikası",
@@ -177,7 +186,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     byRooms: "Otaq sayına görə",
     bySource: "Mənbəyə görə",
     byFuelType: "Yanacaq növünə görə",
+    byRegion: "Regiona görə",
+    byCategory: "Kateqoriyaya görə",
+    byBrand: "Brendə görə",
+    byBodyType: "Ban növünə görə",
+    byTransmission: "Sürətlər qutusuna görə",
+    groupBy: "Qruplaşdır",
     countLabel: "Say",
+    activeFilters: "aktiv filtrlər",
+    filters: "Filtrlər",
+    totalLoaded: "yükləndi",
   },
 };
 
@@ -446,11 +464,13 @@ function KpiCard({
   value,
   sub,
   accent,
+  icon,
 }: {
   label: string;
   value: string;
   sub?: string;
   accent?: "green" | "red" | "neutral";
+  icon?: React.ReactNode;
 }) {
   const accentClass =
     accent === "green"
@@ -458,11 +478,20 @@ function KpiCard({
       : accent === "red"
       ? "text-rose-500 dark:text-rose-400"
       : "text-zinc-900 dark:text-zinc-100";
+  const borderClass =
+    accent === "green"
+      ? "border-emerald-200/60 dark:border-emerald-900/40"
+      : accent === "red"
+      ? "border-rose-200/60 dark:border-rose-900/40"
+      : "border-slate-200/80 dark:border-zinc-800/80";
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/40 p-5 shadow-sm dark:border-zinc-800/80 dark:from-zinc-900 dark:to-zinc-900/40">
-      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{label}</span>
+    <div className={`flex flex-col gap-1.5 rounded-2xl border ${borderClass} bg-gradient-to-br from-white to-slate-50/60 p-5 shadow-sm dark:from-zinc-900 dark:to-zinc-900/40`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{label}</span>
+        {icon && <span>{icon}</span>}
+      </div>
       <span className={`text-2xl font-bold tabular-nums ${accentClass}`}>{value}</span>
-      {sub && <span className="text-xs text-zinc-500 dark:text-zinc-500">{sub}</span>}
+      {sub && <span className="text-xs text-zinc-400 dark:text-zinc-500">{sub}</span>}
     </div>
   );
 }
@@ -498,13 +527,54 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function FilterSection({ title, children }: { title: string; children: React.ReactNode }) {
+function FilterSection({
+  title,
+  children,
+  defaultOpen = true,
+  badge,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  badge?: number;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="space-y-2.5">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{title}</p>
-      {children}
+    <div>
+      <button
+        type="button"
+        className="flex w-full items-center justify-between py-1 text-left"
+        onClick={() => setOpen((p) => !p)}
+      >
+        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+          {title}
+        </span>
+        <span className="flex items-center gap-1.5">
+          {badge != null && badge > 0 && (
+            <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-bold leading-none text-blue-600 dark:text-blue-400">
+              {badge}
+            </span>
+          )}
+          <svg
+            className={`h-3 w-3 text-zinc-400 transition-transform duration-150 ${
+              open ? "" : "-rotate-90"
+            }`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </span>
+      </button>
+      {open && <div className="mt-2 space-y-2.5">{children}</div>}
     </div>
   );
+}
+
+// Locale-independent compact formatter — avoids SSR/client hydration mismatch
+function fmtNum(v: number): string {
+  if (v >= 1_000_000) return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v / 1_000_000)}M`;
+  if (v >= 1_000)     return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(v / 1_000))}K`;
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(v);
 }
 
 function NumberRangeFilter({
@@ -512,44 +582,96 @@ function NumberRangeFilter({
   onChange,
   bounds,
   step = 1,
+  formatter,
 }: {
   value: [number, number];
   onChange: (next: [number, number]) => void;
   bounds: [number, number];
   step?: number;
+  formatter?: (v: number) => string;
 }) {
-  const updateMin = (raw: string) => {
-    const next = Number(raw);
-    if (!Number.isFinite(next)) return;
-    onChange(clampRange([next, value[1]], bounds));
-  };
-
-  const updateMax = (raw: string) => {
-    const next = Number(raw);
-    if (!Number.isFinite(next)) return;
-    onChange(clampRange([value[0], next], bounds));
-  };
+  const fmt = formatter ?? fmtNum;
+  const rangeWidth = bounds[1] - bounds[0] || 1;
+  const leftPct  = Math.max(0, Math.min(100, ((value[0] - bounds[0]) / rangeWidth) * 100));
+  const rightPct = Math.max(0, Math.min(100, ((value[1] - bounds[0]) / rangeWidth) * 100));
 
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <input
-        type="number"
-        min={bounds[0]}
-        max={bounds[1]}
-        step={step}
-        value={value[0]}
-        onChange={(e) => updateMin(e.target.value)}
-        className="w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
-      />
-      <input
-        type="number"
-        min={bounds[0]}
-        max={bounds[1]}
-        step={step}
-        value={value[1]}
-        onChange={(e) => updateMax(e.target.value)}
-        className="w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
-      />
+    <div className="px-1 pt-8 pb-1">
+      <div className="relative h-1.5">
+        {/* Background track */}
+        <div className="absolute inset-0 rounded-full bg-slate-200 dark:bg-zinc-700" />
+        {/* Active fill */}
+        <div
+          className="absolute h-1.5 rounded-full bg-blue-500"
+          style={{ left: `${leftPct}%`, right: `${100 - rightPct}%` }}
+        />
+        {/* Min label bubble */}
+        <div
+          className="pointer-events-none absolute bottom-full mb-2.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-blue-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow"
+          style={{ left: `${leftPct}%` }}
+        >
+          {fmt(value[0])}
+        </div>
+        {/* Max label bubble */}
+        <div
+          className="pointer-events-none absolute bottom-full mb-2.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-blue-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow"
+          style={{ left: `${rightPct}%` }}
+        >
+          {fmt(value[1])}
+        </div>
+        {/* Min thumb */}
+        <input
+          type="range"
+          className="range-thumb"
+          min={bounds[0]}
+          max={bounds[1]}
+          step={step}
+          value={value[0]}
+          onChange={(e) => onChange(clampRange([Number(e.target.value), value[1]], bounds))}
+        />
+        {/* Max thumb */}
+        <input
+          type="range"
+          className="range-thumb"
+          min={bounds[0]}
+          max={bounds[1]}
+          step={step}
+          value={value[1]}
+          onChange={(e) => onChange(clampRange([value[0], Number(e.target.value)], bounds))}
+        />
+      </div>
+      {/* Bound labels */}
+      <div className="mt-2 flex justify-between text-[10px] text-zinc-400">
+        <span>{fmt(bounds[0])}</span>
+        <span>{fmt(bounds[1])}</span>
+      </div>
+      {/* Manual inputs */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <input
+          type="number"
+          min={bounds[0]}
+          max={bounds[1]}
+          step={step}
+          value={value[0]}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) onChange(clampRange([n, value[1]], bounds));
+          }}
+          className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 outline-none transition focus:border-blue-400 focus:ring-1 focus:ring-blue-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:focus:border-blue-500"
+        />
+        <input
+          type="number"
+          min={bounds[0]}
+          max={bounds[1]}
+          step={step}
+          value={value[1]}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) onChange(clampRange([value[0], n], bounds));
+          }}
+          className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-zinc-700 outline-none transition focus:border-blue-400 focus:ring-1 focus:ring-blue-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:focus:border-blue-500"
+        />
+      </div>
     </div>
   );
 }
@@ -602,6 +724,12 @@ export default function Home() {
   const [turboPriceRange, setTurboPriceRange] = useState<[number, number]>([0, 1_000_000]);
   const [turboYearRange, setTurboYearRange] = useState<[number, number]>([1970, 2026]);
   const [turboMileageRange, setTurboMileageRange] = useState<[number, number]>([0, 500_000]);
+
+  // Breakdown dimension selection per project
+  const [breakdownDimBina, setBreakdownDimBina] = useState<"rooms" | "region" | "category">("rooms");
+  const [breakdownDimMarkets, setBreakdownDimMarkets] = useState<"source" | "category" | "brand">("source");
+  const [breakdownDimTurbo, setBreakdownDimTurbo] = useState<"fuelType" | "bodyType" | "transmission">("fuelType");
+
   const allRooms = useMemo(() => ((meta.rooms as number[]) ?? []).map(String), [meta.rooms]);
   const t = (key: string) => I18N[lang][key] ?? key;
   const dateLocale = lang === "az" ? "az-AZ" : "en-US";
@@ -654,6 +782,51 @@ export default function Home() {
     noResults: t("noResults"),
     all: t("all"),
   };
+
+  // ── Active filter count per project ─────────────────────────────────────────
+  const activeFilterCount = useMemo(() => {
+    const allPeriodList = (meta.periods as string[]) ?? [];
+    let n = periods.length !== allPeriodList.length ? 1 : 0;
+    if (project === "Bina.az") {
+      if (operationType !== "Sale") n++;
+      const mr = (meta.regions as string[]) ?? [];
+      if (regions.length !== mr.length) n++;
+      const mc = (meta.categories as string[]) ?? [];
+      if (categories.length !== mc.length) n++;
+      const roomOpts = ((meta.rooms as number[]) ?? []).map(String);
+      if (rooms.length !== roomOpts.length) n++;
+      if (binaPriceRange[0] !== binaPriceBounds[0] || binaPriceRange[1] !== binaPriceBounds[1]) n++;
+      if (binaAreaRange[0] !== binaAreaBounds[0] || binaAreaRange[1] !== binaAreaBounds[1]) n++;
+      if (binaUnitRange[0] !== binaUnitBounds[0] || binaUnitRange[1] !== binaUnitBounds[1]) n++;
+    } else if (project === "Markets") {
+      const ms = (meta.sources as string[]) ?? [];
+      if (sources.length !== ms.length) n++;
+      const mc = (meta.categories as string[]) ?? [];
+      if (categories.length !== mc.length) n++;
+      const mb = (meta.brands as string[]) ?? [];
+      if (brands.length !== mb.length) n++;
+      if (marketsPriceRange[0] !== marketsPriceBounds[0] || marketsPriceRange[1] !== marketsPriceBounds[1]) n++;
+    } else {
+      const mb = (meta.brands as string[]) ?? [];
+      if (brands.length !== mb.length) n++;
+      const mf = (meta.fuelTypes as string[]) ?? [];
+      if (turboFuelTypes.length !== mf.length) n++;
+      const mbo = (meta.bodyTypes as string[]) ?? [];
+      if (turboBodyTypes.length !== mbo.length) n++;
+      const mt = (meta.transmissions as string[]) ?? [];
+      if (turboTransmissions.length !== mt.length) n++;
+      if (turboPriceRange[0] !== turboPriceBounds[0] || turboPriceRange[1] !== turboPriceBounds[1]) n++;
+      if (turboYearRange[0] !== turboYearBounds[0] || turboYearRange[1] !== turboYearBounds[1]) n++;
+      if (turboMileageRange[0] !== turboMileageBounds[0] || turboMileageRange[1] !== turboMileageBounds[1]) n++;
+    }
+    return n;
+  }, [
+    project, meta, periods, operationType, regions, categories, rooms, sources, brands,
+    turboFuelTypes, turboBodyTypes, turboTransmissions,
+    binaPriceRange, binaPriceBounds, binaAreaRange, binaAreaBounds, binaUnitRange, binaUnitBounds,
+    marketsPriceRange, marketsPriceBounds,
+    turboPriceRange, turboPriceBounds, turboYearRange, turboYearBounds, turboMileageRange, turboMileageBounds,
+  ]);
 
   const resetCurrentProjectFilters = () => {
     const periodValues = (meta.periods as string[]) ?? [];
@@ -954,7 +1127,7 @@ export default function Home() {
       ? t("medianPriceM2")
       : t("medianPrice");
 
-  // Breakdown chart: group filtered rows by a key dimension
+  // Breakdown chart: group filtered rows by the selected dimension
   const breakdownData = useMemo(() => {
     const map = new Map<string, number[]>();
     for (const r of filteredRows) {
@@ -962,15 +1135,21 @@ export default function Home() {
       let price: number;
       if (project === "Bina.az") {
         const row = r as BinaRow;
-        key = String(row.rooms ?? "?");
+        if (breakdownDimBina === "rooms") key = row.rooms != null ? `${row.rooms}` : "?";
+        else if (breakdownDimBina === "region") key = row.region;
+        else key = row.category;
         price = operationType === "Sale" ? row.pricePerM2 : row.price;
       } else if (project === "Markets") {
         const row = r as MarketsRow;
-        key = row.source;
+        if (breakdownDimMarkets === "source") key = row.source;
+        else if (breakdownDimMarkets === "category") key = row.category;
+        else key = row.brand;
         price = row.price;
       } else {
         const row = r as TurboRow;
-        key = row.fuelType;
+        if (breakdownDimTurbo === "fuelType") key = row.fuelType;
+        else if (breakdownDimTurbo === "bodyType") key = row.bodyType;
+        else key = row.transmission;
         price = row.price;
       }
       if (!map.has(key)) map.set(key, []);
@@ -985,14 +1164,14 @@ export default function Home() {
       .filter((d) => d.count >= 5)
       .sort((a, b) => b.medianPrice - a.medianPrice)
       .slice(0, 20);
-  }, [filteredRows, project, operationType]);
+  }, [filteredRows, project, operationType, breakdownDimBina, breakdownDimMarkets, breakdownDimTurbo]);
 
-  const breakdownSubtitle =
+  const breakdownDimLabel =
     project === "Bina.az"
-      ? t("byRooms")
+      ? { rooms: t("byRooms"), region: t("byRegion"), category: t("byCategory") }[breakdownDimBina]
       : project === "Markets"
-      ? t("bySource")
-      : t("byFuelType");
+      ? { source: t("bySource"), category: t("byCategory"), brand: t("byBrand") }[breakdownDimMarkets]
+      : { fuelType: t("byFuelType"), bodyType: t("byBodyType"), transmission: t("byTransmission") }[breakdownDimTurbo];
 
   const projects: { key: ProjectKey; icon: string }[] = [
     { key: "Bina.az", icon: "🏠" },
@@ -1052,10 +1231,19 @@ export default function Home() {
       <div className="flex">
         {/* Sidebar */}
         <aside className="sticky top-14 h-[calc(100vh-3.5rem)] w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-slate-50/95 p-5 dark:border-zinc-800 dark:bg-zinc-950/80">
-          <div className="mb-3 flex justify-end">
+          <div className="mb-4 flex items-center justify-between">
+            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              {t("filters")}
+              {activeFilterCount > 0 && (
+                <span className="ml-2 inline-block rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold leading-none text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </span>
             <button
               onClick={resetCurrentProjectFilters}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:border-slate-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
+              disabled={activeFilterCount === 0}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:border-slate-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
             >
               {t("reset")}
             </button>
@@ -1193,7 +1381,12 @@ export default function Home() {
                   <NumberRangeFilter value={turboPriceRange} bounds={turboPriceBounds} onChange={setTurboPriceRange} />
                 </FilterSection>
                 <FilterSection title={t("yearRange")}>
-                  <NumberRangeFilter value={turboYearRange} bounds={turboYearBounds} onChange={setTurboYearRange} />
+                  <NumberRangeFilter
+                    value={turboYearRange}
+                    bounds={turboYearBounds}
+                    onChange={setTurboYearRange}
+                    formatter={(v) => String(v)}
+                  />
                 </FilterSection>
                 <FilterSection title={t("mileageRange")}>
                   <NumberRangeFilter value={turboMileageRange} bounds={turboMileageBounds} onChange={setTurboMileageRange} />
@@ -1206,7 +1399,7 @@ export default function Home() {
         {/* Main content */}
         <main className="min-w-0 flex-1 space-y-5 p-6">
           {error && (
-            <div className="rounded-xl border border-rose-700/50 bg-rose-900/20 p-3 text-sm text-rose-300">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-600 dark:border-rose-700/50 dark:bg-rose-900/20 dark:text-rose-300">
               {error}
             </div>
           )}
@@ -1218,11 +1411,11 @@ export default function Home() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <KpiCard label={t("filteredListings")} value={kpis.count.toLocaleString()} />
+            <KpiCard label={t("filteredListings")} value={kpis.count.toLocaleString("en-US")} />
             <KpiCard
               label={medianLabel}
-              value={kpis.medianValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              sub={kpis.prevMedian != null ? `${t("prev")}: ${kpis.prevMedian.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : undefined}
+              value={kpis.medianValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+              sub={kpis.prevMedian != null ? `${t("prev")}: ${kpis.prevMedian.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : undefined}
             />
             <KpiCard
               label={t("latestPeriodChange")}
@@ -1241,7 +1434,7 @@ export default function Home() {
                     <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="dateLabel" stroke={chartColors.axis} tick={{ fill: chartColors.tick, fontSize: 11 }} axisLine={false} tickLine={false} />
                     <YAxis stroke={chartColors.axis} tick={{ fill: chartColors.tick, fontSize: 11 }} axisLine={false} tickLine={false} width={70} />
-                    <Tooltip {...shared} formatter={(v: number | undefined) => [(v ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 }), medianLabel]} />
+                    <Tooltip {...shared} formatter={(v: number | undefined) => [(v ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }), medianLabel]} />
                     <Line type="monotone" dataKey="medianPrice" stroke="#60a5fa" strokeWidth={2.5} dot={{ r: 4, fill: "#60a5fa", strokeWidth: 0 }} activeDot={{ r: 6 }} />
                   </LineChart>
                 </Chart>
@@ -1272,7 +1465,46 @@ export default function Home() {
               </Section>
 
               {breakdownData.length > 0 && (
-                <Section title={`${t("breakdown")} — ${breakdownSubtitle}`}>
+                <Section title={`${t("breakdown")} — ${breakdownDimLabel}`}>
+                  {/* Dimension selector */}
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t("groupBy")}:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {(project === "Bina.az"
+                        ? (["rooms", "region", "category"] as const).map((d) => ({
+                            id: d,
+                            label: t(d === "rooms" ? "byRooms" : d === "region" ? "byRegion" : "byCategory"),
+                            active: breakdownDimBina === d,
+                            set: () => setBreakdownDimBina(d),
+                          }))
+                        : project === "Markets"
+                        ? (["source", "category", "brand"] as const).map((d) => ({
+                            id: d,
+                            label: t(d === "source" ? "bySource" : d === "category" ? "byCategory" : "byBrand"),
+                            active: breakdownDimMarkets === d,
+                            set: () => setBreakdownDimMarkets(d),
+                          }))
+                        : (["fuelType", "bodyType", "transmission"] as const).map((d) => ({
+                            id: d,
+                            label: t(d === "fuelType" ? "byFuelType" : d === "bodyType" ? "byBodyType" : "byTransmission"),
+                            active: breakdownDimTurbo === d,
+                            set: () => setBreakdownDimTurbo(d),
+                          }))
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          onClick={opt.set}
+                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition ${
+                            opt.active
+                              ? "bg-blue-500 text-white"
+                              : "bg-slate-200 text-zinc-600 hover:bg-slate-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <Chart height={Math.max(200, breakdownData.length * 38)}>
                     <BarChart
                       data={breakdownData}
@@ -1286,7 +1518,7 @@ export default function Home() {
                         tick={{ fill: chartColors.tick, fontSize: 10 }}
                         axisLine={false}
                         tickLine={false}
-                        tickFormatter={(v) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        tickFormatter={(v) => v.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                       />
                       <YAxis
                         type="category"
@@ -1299,7 +1531,7 @@ export default function Home() {
                       />
                       <Tooltip
                         {...shared}
-                        formatter={(v: number | undefined) => [(v ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 }), medianLabel]}
+                        formatter={(v: number | undefined) => [(v ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }), medianLabel]}
                       />
                       <Bar dataKey="medianPrice" radius={[0, 4, 4, 0]} maxBarSize={28}>
                         {breakdownData.map((_entry, index) => (
