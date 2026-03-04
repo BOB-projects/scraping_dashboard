@@ -34,7 +34,22 @@ export type TurboRow = {
   transmission: string;
 };
 
-const cache = new Map<string, unknown>();
+const cache = new Map<string, { data: unknown; timestamp: number }>();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache
+
+function getCached<T>(key: string): T | null {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > CACHE_TTL) {
+    cache.delete(key);
+    return null;
+  }
+  return cached.data as T;
+}
+
+function setCached(key: string, data: unknown) {
+  cache.set(key, { data, timestamp: Date.now() });
+}
 
 function extractPeriodFromName(name: string): string {
   const yyyymm = name.match(/(\d{6})/);
@@ -91,7 +106,8 @@ async function listParquetFiles(dir: string): Promise<string[]> {
 
 export async function loadBinaRows(): Promise<BinaRow[]> {
   const key = "bina";
-  if (cache.has(key)) return cache.get(key) as BinaRow[];
+  const cached = getCached<BinaRow[]>(key);
+  if (cached) return cached;
 
   const baseDir = path.resolve(process.cwd(), "public", "data", "bina_az", "data");
   const files = await listParquetFiles(baseDir);
@@ -137,13 +153,14 @@ export async function loadBinaRows(): Promise<BinaRow[]> {
     }
   }
 
-  cache.set(key, rows);
+  setCached(key, rows);
   return rows;
 }
 
 export async function loadMarketsRows(): Promise<MarketsRow[]> {
   const key = "markets";
-  if (cache.has(key)) return cache.get(key) as MarketsRow[];
+  const cached = getCached<MarketsRow[]>(key);
+  if (cached) return cached;
 
   const baseDir = path.resolve(process.cwd(), "public", "data", "markets", "data");
   const files = await listParquetFiles(baseDir);
@@ -171,13 +188,14 @@ export async function loadMarketsRows(): Promise<MarketsRow[]> {
     }
   }
 
-  cache.set(key, rows);
+  setCached(key, rows);
   return rows;
 }
 
 export async function loadTurboRows(): Promise<TurboRow[]> {
   const key = "turbo";
-  if (cache.has(key)) return cache.get(key) as TurboRow[];
+  const cached = getCached<TurboRow[]>(key);
+  if (cached) return cached;
 
   const baseDir = path.resolve(process.cwd(), "public", "data", "turbo_az", "data");
   const files = await listParquetFiles(baseDir);
@@ -216,7 +234,7 @@ export async function loadTurboRows(): Promise<TurboRow[]> {
     }
   }
 
-  cache.set(key, rows);
+  setCached(key, rows);
   return rows;
 }
 

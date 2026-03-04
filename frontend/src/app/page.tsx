@@ -464,13 +464,13 @@ function KpiCard({
   value,
   sub,
   accent,
-  icon,
+  history,
 }: {
   label: string;
   value: string;
   sub?: string;
   accent?: "green" | "red" | "neutral";
-  icon?: React.ReactNode;
+  history?: { label: string; value: string }[];
 }) {
   const accentClass =
     accent === "green"
@@ -484,14 +484,43 @@ function KpiCard({
       : accent === "red"
       ? "border-rose-200/60 dark:border-rose-900/40"
       : "border-slate-200/80 dark:border-zinc-800/80";
+
   return (
-    <div className={`flex flex-col gap-1.5 rounded-2xl border ${borderClass} bg-gradient-to-br from-white to-slate-50/60 p-5 shadow-sm dark:from-zinc-900 dark:to-zinc-900/40`}>
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{label}</span>
-        {icon && <span>{icon}</span>}
+    <div
+      className={`relative flex min-h-[140px] flex-col justify-between overflow-hidden rounded-2xl border ${borderClass} bg-gradient-to-br from-white to-slate-50/60 p-5 shadow-sm transition-all hover:shadow-md dark:from-zinc-900 dark:to-zinc-900/40`}
+    >
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+            {label}
+          </span>
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className={`text-3xl font-extrabold tabular-nums tracking-tight ${accentClass}`}>
+            {value}
+          </span>
+          {sub && (
+            <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
+              {sub}
+            </span>
+          )}
+        </div>
       </div>
-      <span className={`text-2xl font-bold tabular-nums ${accentClass}`}>{value}</span>
-      {sub && <span className="text-xs text-zinc-400 dark:text-zinc-500">{sub}</span>}
+
+      {history && history.length > 0 && (
+        <div className="mt-4 flex gap-3 border-t border-slate-100 pt-3 dark:border-zinc-800/50">
+          {history.map((item, i) => (
+            <div key={i} className="flex flex-col">
+              <span className="text-[9px] font-medium uppercase text-zinc-400 dark:text-zinc-500">
+                {item.label}
+              </span>
+              <span className="text-xs font-bold text-zinc-600 dark:text-zinc-300">
+                {item.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1112,13 +1141,24 @@ export default function Home() {
   }, [filteredRows, project, operationType, dateLocale, lang]);
 
   const kpis = useMemo(() => {
-    const latest = trend.at(-1);
-    const prev = trend.at(-2);
+    const sorted = [...trend].sort((a, b) => b.period.localeCompare(a.period));
+    const latest = sorted[0];
+    const prevs = sorted.slice(1, 4); // Take up to 3 previous periods
+
     return {
       count: filteredRows.length,
       medianValue: latest?.medianPrice ?? 0,
       latestPct: latest?.pctChange ?? 0,
-      prevMedian: prev?.medianPrice,
+      latestLabel: latest?.dateLabel ?? "",
+      history: prevs.map((p) => ({
+        label: p.dateLabel,
+        value: p.medianPrice.toLocaleString("en-US", { maximumFractionDigits: 0 }),
+      })),
+      historyPct: prevs.map((p) => ({
+        label: p.dateLabel,
+        value: `${p.pctChange > 0 ? "+" : ""}${p.pctChange.toFixed(1)}%`,
+        accent: (p.pctChange > 0 ? "green" : p.pctChange < 0 ? "red" : "neutral") as "green" | "red" | "neutral",
+      })),
     };
   }, [filteredRows, trend]);
 
@@ -1411,16 +1451,23 @@ export default function Home() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <KpiCard label={t("filteredListings")} value={kpis.count.toLocaleString("en-US")} />
+            <KpiCard
+              label={t("filteredListings")}
+              value={kpis.count.toLocaleString("en-US")}
+              sub={kpis.latestLabel}
+            />
             <KpiCard
               label={medianLabel}
               value={kpis.medianValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-              sub={kpis.prevMedian != null ? `${t("prev")}: ${kpis.prevMedian.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : undefined}
+              sub={kpis.latestLabel}
+              history={kpis.history}
             />
             <KpiCard
               label={t("latestPeriodChange")}
               value={`${kpis.latestPct > 0 ? "+" : ""}${kpis.latestPct.toFixed(2)}%`}
+              sub={kpis.latestLabel}
               accent={kpis.latestPct > 0 ? "green" : kpis.latestPct < 0 ? "red" : "neutral"}
+              history={kpis.historyPct.map((h) => ({ label: h.label, value: h.value }))}
             />
           </div>
 
