@@ -1065,13 +1065,11 @@ export default function Home() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(
-          `/api/dashboard?project=${encodeURIComponent(project)}`,
-          {
-            signal: controller.signal,
-            cache: "no-store",
-          },
-        );
+        const route = project === "Bina.az" ? "/api/data/bina" : project === "Markets" ? "/api/data/markets" : "/api/data/turbo";
+        const response = await fetch(route, {
+          signal: controller.signal,
+          // Removed cache: 'no-store' to allow SSG and browser caching
+        });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -1173,43 +1171,113 @@ export default function Home() {
     };
   }, [project]);
 
-  const filteredRows = useMemo(() => {
+  // 1. First Pass: Filter by everything EXCEPT the grouped dimension (Regions / Brands)
+  // This allows us to calculate how many ads remain for EACH Region/Brand based on Date, Price, Category etc.
+  const baseData = useMemo(() => {
     const periodSet = new Set(periods);
 
     if (project === "Bina.az") {
       const typed = rows as BinaRow[];
       const categorySet = new Set(categories);
       const roomSet = new Set(rooms);
-      const base = typed.filter((r) => {
+      const rowsWithoutRegions = typed.filter((r) => {
         const okPeriod = periodSet.has(r.period);
         const okOp = r.operationType === operationType;
         const okCategory = categorySet.has(r.category);
         const okRoom = r.rooms === null ? false : roomSet.has(String(r.rooms));
-        const okPrice =
-          r.price >= binaPriceRange[0] && r.price <= binaPriceRange[1];
+        const okPrice = r.price >= binaPriceRange[0] && r.price <= binaPriceRange[1];
         const okArea = r.area >= binaAreaRange[0] && r.area <= binaAreaRange[1];
-        const okUnit =
-          operationType === "Rent"
-            ? true
-            : r.pricePerM2 >= binaUnitRange[0] &&
-              r.pricePerM2 <= binaUnitRange[1];
-        return (
-          okPeriod &&
-          okOp &&
-          okCategory &&
-          okRoom &&
-          okPrice &&
-          okArea &&
-          okUnit
-        );
+        const okUnit = operationType === "Rent" ? true : r.pricePerM2 >= binaUnitRange[0] && r.pricePerM2 <= binaUnitRange[1];
+        return okPeriod && okOp && okCategory && okRoom && okPrice && okArea && okUnit;
       });
 
       const counts = new Map<string, number>();
-      for (const row of base) {
+      for (const row of rowsWithoutRegions) {
         counts.set(row.region, (counts.get(row.region) ?? 0) + 1);
       }
 
-      const eligible = [...counts.entries()]
+      // Available regions is just the regions that have >0 ads with current active filters
+      const availableRegions = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1]) // highest volume first
+        .map(([region]) => region);
+
+      return { rows: rowsWithoutRegions, counts, availableRegions, availableBrands: [] };
+    }
+
+    if (project === "Markets") {
+      const typed = rows as MarketsRow[];
+      const sourceSet = new Set(sources);
+      const categorySet = new Set(categories);
+      const brandSet = new Set(brands);
+      const rowsFiltered = typed.filter((r) => {
+        const okPeriod = periodSet.has(r.period);
+        const okSource = sourceSet.has(r.source);
+        const okCategory = categorySet.has(r.category);
+        const okBrand = brandSet.has(r.brand);
+        const okPrice = r.price >= marketsPriceRange[0] && r.price <= marketsPriceRange[1];
+        return okPeriod && okSource && okCategory && okBrand && okPrice;
+      });
+      return { rows: rowsFiltered, counts: new Map(), availableRegions: [], availableBrands: [] };
+    }
+
+    // Turbo.az
+    const typed = rows as TurboRow[];
+    const fuelSet = new Set(turboFuelTypes);
+    const bodySet = new Set(turboBodyTypes);
+    const transmissionSet = new Set(turboTransmissions);
+    const rowsWithoutBrands = typed.filter((r) => {
+      const okPeriod = periodSet.has(r.period);
+      const okPrice = r.price >= turboPriceRange[0] && r.price <= turboPriceRange[1];
+      const okYear = r.year !== null && r.year >= turboYearRange[0] && r.year <= turboYearRange[1];
+      const okMileage = r.mileage !== null && r.mileage >= turboMileageRange[0] && r.mileage <= turboMileageRange[1];
+      const okFuel = fuelSet.has(r.fuelType);
+      const okBody = bodySet.has(r.bodyType);
+      const okTransmission = transmissionSet.has(r.transmission);
+      return okPeriod && okPrice && okYear && okMileage && okFuel && okBody && okTransmission;
+    });
+
+    const counts = new Map<string, number>();
+    for (const row of rowsWithoutBrands) {
+      counts.set(row.brand, (counts.get(row.brand) ?? 0) + 1);
+    }
+
+    const availableBrands = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1]) // highest volume first
+      .map(([brand]) => brand);
+
+    return { rows: rowsWithoutBrands, counts, availableRegions: [], availableBrands };
+  }, [
+    rows,
+    project,
+    periods,
+    operationType,
+    categories,
+    rooms,
+    binaPriceRange,
+    binaAreaRange,
+    binaUnitRange,
+    sources,
+    brands, // Markets uses manual brands filter completely
+    marketsPriceRange,
+    turboPriceRange,
+    turboYearRange,
+    turboMileageRange,
+    turboFuelTypes,
+    turboBodyTypes,
+    turboTransmissions,
+  ]);
+
+  // 2. Second Pass: Apply Region / Brand rules to the baseData
+  const filteredRows = useMemo(() => {
+    if (project === "Bina.az") {
+      const base = baseData.rows as BinaRow[];
+      if (regionMode === "custom") {
+        // Just slice out what the user picked. Overrides `minRegionAds`.
+        const selectedSet = new Set(regions);
+        return base.filter((r) => selectedSet.has(r.region));
+      }
+
+      const eligible = [...baseData.counts.entries()]
         .filter(([, count]) => count >= minRegionAds)
         .sort((a, b) => b[1] - a[1])
         .map(([region]) => region);
@@ -1219,66 +1287,24 @@ export default function Home() {
           ? eligible
           : regionMode === "top10"
             ? eligible.slice(0, 10)
-            : regionMode === "top20"
-              ? eligible.slice(0, 20)
-              : regions.filter((r) => eligible.includes(r));
+            : eligible.slice(0, 20); // top20
 
       const selectedSet = new Set(selected);
       return base.filter((r) => selectedSet.has(r.region));
     }
 
     if (project === "Markets") {
-      const typed = rows as MarketsRow[];
-      const sourceSet = new Set(sources);
-      const categorySet = new Set(categories);
-      const brandSet = new Set(brands);
-      return typed.filter((r) => {
-        const okPeriod = periodSet.has(r.period);
-        const okSource = sourceSet.has(r.source);
-        const okCategory = categorySet.has(r.category);
-        const okBrand = brandSet.has(r.brand);
-        const okPrice =
-          r.price >= marketsPriceRange[0] && r.price <= marketsPriceRange[1];
-        return okPeriod && okSource && okCategory && okBrand && okPrice;
-      });
+      return baseData.rows as MarketsRow[];
     }
 
-    const typed = rows as TurboRow[];
-    const fuelSet = new Set(turboFuelTypes);
-    const bodySet = new Set(turboBodyTypes);
-    const transmissionSet = new Set(turboTransmissions);
-    const base = typed.filter((r) => {
-      const okPeriod = periodSet.has(r.period);
-      const okPrice =
-        r.price >= turboPriceRange[0] && r.price <= turboPriceRange[1];
-      const okYear =
-        r.year !== null &&
-        r.year >= turboYearRange[0] &&
-        r.year <= turboYearRange[1];
-      const okMileage =
-        r.mileage !== null &&
-        r.mileage >= turboMileageRange[0] &&
-        r.mileage <= turboMileageRange[1];
-      const okFuel = fuelSet.has(r.fuelType);
-      const okBody = bodySet.has(r.bodyType);
-      const okTransmission = transmissionSet.has(r.transmission);
-      return (
-        okPeriod &&
-        okPrice &&
-        okYear &&
-        okMileage &&
-        okFuel &&
-        okBody &&
-        okTransmission
-      );
-    });
-
-    const counts = new Map<string, number>();
-    for (const row of base) {
-      counts.set(row.brand, (counts.get(row.brand) ?? 0) + 1);
+    // Turbo.az
+    const base = baseData.rows as TurboRow[];
+    if (turboBrandMode === "custom") {
+      const selectedSet = new Set(brands);
+      return base.filter((r) => selectedSet.has(r.brand));
     }
 
-    const eligible = [...counts.entries()]
+    const eligible = [...baseData.counts.entries()]
       .filter(([, count]) => count >= turboMinAds)
       .sort((a, b) => b[1] - a[1])
       .map(([brand]) => brand);
@@ -1288,37 +1314,12 @@ export default function Home() {
         ? eligible
         : turboBrandMode === "top10"
           ? eligible.slice(0, 10)
-          : turboBrandMode === "top20"
-            ? eligible.slice(0, 20)
-            : brands.filter((b) => eligible.includes(b));
+          : eligible.slice(0, 20); // top20
 
     const selectedSet = new Set(selected);
     return base.filter((r) => selectedSet.has(r.brand));
-  }, [
-    rows,
-    project,
-    periods,
-    operationType,
-    regions,
-    categories,
-    rooms,
-    brands,
-    sources,
-    regionMode,
-    minRegionAds,
-    binaPriceRange,
-    binaAreaRange,
-    binaUnitRange,
-    marketsPriceRange,
-    turboPriceRange,
-    turboYearRange,
-    turboMileageRange,
-    turboFuelTypes,
-    turboBodyTypes,
-    turboTransmissions,
-    turboBrandMode,
-    turboMinAds,
-  ]);
+  }, [project, baseData, regionMode, regions, minRegionAds, turboBrandMode, brands, turboMinAds]);
+
 
   const trend = useMemo(() => {
     const byPeriod = new Map<string, number[]>();
@@ -1593,26 +1594,22 @@ export default function Home() {
                     value={regionMode}
                     onChange={(v) => setRegionMode(v as RegionMode)}
                   />
-                  <input
-                    type="number"
-                    min={1}
-                    max={5000}
-                    value={minRegionAds}
-                    onChange={(e) =>
-                      setMinRegionAds(Math.max(1, Number(e.target.value) || 1))
-                    }
-                    className="mt-2 w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
-                    placeholder={t("minAdsRegion")}
-                  />
-                </FilterSection>
-                <FilterSection title={t("regions")}>
-                  <CheckboxList
-                    label={t("regions")}
-                    options={(meta.regions as string[]) ?? []}
-                    value={regions}
-                    onChange={setRegions}
-                    ui={checkboxUi}
-                  />
+                  {regionMode !== "custom" && (
+                    <input
+                      type="number"
+                      min={1}
+                      max={5000}
+                      value={minRegionAds}
+                      onChange={(e) => setMinRegionAds(Math.max(1, Number(e.target.value) || 1))}
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
+                      placeholder={t("minAdsRegion")}
+                    />
+                  )}
+                  {regionMode === "custom" && (
+                    <div className="mt-3">
+                      <CheckboxList label={t("regions")} options={baseData.availableRegions} value={regions} onChange={setRegions} ui={checkboxUi} />
+                    </div>
+                  )}
                 </FilterSection>
                 <FilterSection title={t("categories")}>
                   <CheckboxList
@@ -1723,26 +1720,30 @@ export default function Home() {
                     value={turboBrandMode}
                     onChange={(v) => setTurboBrandMode(v as BrandMode)}
                   />
-                  <input
-                    type="number"
-                    min={1}
-                    max={5000}
-                    value={turboMinAds}
-                    onChange={(e) =>
-                      setTurboMinAds(Math.max(1, Number(e.target.value) || 1))
-                    }
-                    className="mt-2 w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
-                    placeholder={t("minAdsBrand")}
-                  />
-                </FilterSection>
-                <FilterSection title={t("brands")}>
-                  <CheckboxList
-                    label={t("brands")}
-                    options={(meta.brands as string[]) ?? []}
-                    value={brands}
-                    onChange={setBrands}
-                    ui={checkboxUi}
-                  />
+                  {turboBrandMode !== "custom" && (
+                    <input
+                      type="number"
+                      min={1}
+                      max={5000}
+                      value={turboMinAds}
+                      onChange={(e) =>
+                        setTurboMinAds(Math.max(1, Number(e.target.value) || 1))
+                      }
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
+                      placeholder={t("minAdsBrand")}
+                    />
+                  )}
+                  {turboBrandMode === "custom" && (
+                    <div className="mt-3">
+                      <CheckboxList
+                        label={t("brands")}
+                        options={baseData.availableBrands}
+                        value={brands}
+                        onChange={setBrands}
+                        ui={checkboxUi}
+                      />
+                    </div>
+                  )}
                 </FilterSection>
                 <FilterSection title={t("fuelTypes")}>
                   <CheckboxList
