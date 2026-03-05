@@ -215,7 +215,10 @@ function median(values: number[]): number {
     : sorted[mid];
 }
 
-function numericBounds(values: number[], fallback: [number, number]): [number, number] {
+function numericBounds(
+  values: number[],
+  fallback: [number, number],
+): [number, number] {
   if (!values.length) return fallback;
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
@@ -224,13 +227,17 @@ function numericBounds(values: number[], fallback: [number, number]): [number, n
     if (value < min) min = value;
     if (value > max) max = value;
   }
-  if (min === Number.POSITIVE_INFINITY || max === Number.NEGATIVE_INFINITY) return fallback;
+  if (min === Number.POSITIVE_INFINITY || max === Number.NEGATIVE_INFINITY)
+    return fallback;
   if (!Number.isFinite(min) || !Number.isFinite(max)) return fallback;
   if (min === max) return [min, max + 1];
   return [min, max];
 }
 
-function clampRange(value: [number, number], bounds: [number, number]): [number, number] {
+function clampRange(
+  value: [number, number],
+  bounds: [number, number],
+): [number, number] {
   const lo = Math.max(bounds[0], Math.min(bounds[1], value[0]));
   const hi = Math.max(bounds[0], Math.min(bounds[1], value[1]));
   return lo <= hi ? [lo, hi] : [bounds[0], bounds[1]];
@@ -238,18 +245,23 @@ function clampRange(value: [number, number], bounds: [number, number]): [number,
 
 function withPercentChange(
   points: Omit<TrendPoint, "pctChange" | "pctLabel">[],
-  labels: { noPreviousPeriod: string; drop: string; rise: string; noChange: string }
+  labels: {
+    noPreviousPeriod: string;
+    drop: string;
+    rise: string;
+    noChange: string;
+  },
 ): TrendPoint[] {
-  return points.map((point, idx, arr) => {
-    if (idx === 0) {
+  if (points.length === 0) return [];
+  const basePrice = points[0].medianPrice;
+
+  return points.map((point, idx) => {
+    if (idx === 0 || !basePrice) {
       return { ...point, pctChange: 0, pctLabel: labels.noPreviousPeriod };
     }
-    const prev = arr[idx - 1].medianPrice;
-    if (!prev) {
-      return { ...point, pctChange: 0, pctLabel: labels.noPreviousPeriod };
-    }
-    const value = ((point.medianPrice - prev) / prev) * 100;
-    const dir = value < 0 ? labels.drop : value > 0 ? labels.rise : labels.noChange;
+    const value = ((point.medianPrice - basePrice) / basePrice) * 100;
+    const dir =
+      value < 0 ? labels.drop : value > 0 ? labels.rise : labels.noChange;
     const label = `${Math.abs(value).toFixed(2)}% ${dir}`;
     return { ...point, pctChange: value, pctLabel: label };
   });
@@ -376,7 +388,7 @@ function CheckboxList({
   const ref = useRef<HTMLDivElement>(null);
 
   const visible = options.filter((o) =>
-    o.toLowerCase().includes(search.toLowerCase())
+    o.toLowerCase().includes(search.toLowerCase()),
   );
   const allOn = value.length === options.length;
   const someOn = value.length > 0 && !allOn;
@@ -387,7 +399,8 @@ function CheckboxList({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     };
     if (open) document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -408,9 +421,16 @@ function CheckboxList({
           )}
           <svg
             className={`h-4 w-4 text-zinc-400 transition-transform dark:text-zinc-400 ${open ? "rotate-180" : ""}`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 9l-7 7-7-7"
+            />
           </svg>
         </span>
       </button>
@@ -430,25 +450,39 @@ function CheckboxList({
               id={`all-${label}`}
               type="checkbox"
               checked={allOn}
-              ref={(el) => { if (el) el.indeterminate = someOn; }}
+              ref={(el) => {
+                if (el) el.indeterminate = someOn;
+              }}
               onChange={toggleAll}
               className="accent-blue-500"
             />
-            <label htmlFor={`all-${label}`} className="cursor-pointer text-xs text-zinc-500 dark:text-zinc-400">
-              {(ui?.selectAll ?? "Select all")} ({options.length})
+            <label
+              htmlFor={`all-${label}`}
+              className="cursor-pointer text-xs text-zinc-500 dark:text-zinc-400"
+            >
+              {ui?.selectAll ?? "Select all"} ({options.length})
             </label>
           </div>
           <ul className="max-h-52 overflow-y-auto py-1">
             {visible.map((o) => (
               <li key={o}>
                 <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800">
-                  <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} className="accent-blue-500" />
-                  <span className="truncate text-xs text-zinc-600 dark:text-zinc-300">{o}</span>
+                  <input
+                    type="checkbox"
+                    checked={value.includes(o)}
+                    onChange={() => toggle(o)}
+                    className="accent-blue-500"
+                  />
+                  <span className="truncate text-xs text-zinc-600 dark:text-zinc-300">
+                    {o}
+                  </span>
                 </label>
               </li>
             ))}
             {visible.length === 0 && (
-              <li className="px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500">{ui?.noResults ?? "No results"}</li>
+              <li className="px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500">
+                {ui?.noResults ?? "No results"}
+              </li>
             )}
           </ul>
         </div>
@@ -476,14 +510,14 @@ function KpiCard({
     accent === "green"
       ? "text-emerald-500 dark:text-emerald-400"
       : accent === "red"
-      ? "text-rose-500 dark:text-rose-400"
-      : "text-zinc-900 dark:text-zinc-100";
+        ? "text-rose-500 dark:text-rose-400"
+        : "text-zinc-900 dark:text-zinc-100";
   const borderClass =
     accent === "green"
       ? "border-emerald-200/60 dark:border-emerald-900/40"
       : accent === "red"
-      ? "border-rose-200/60 dark:border-rose-900/40"
-      : "border-slate-200/80 dark:border-zinc-800/80";
+        ? "border-rose-200/60 dark:border-rose-900/40"
+        : "border-slate-200/80 dark:border-zinc-800/80";
 
   return (
     <div
@@ -496,7 +530,9 @@ function KpiCard({
           </span>
         </div>
         <div className="flex items-baseline gap-2">
-          <span className={`text-3xl font-extrabold tabular-nums tracking-tight ${accentClass}`}>
+          <span
+            className={`text-3xl font-extrabold tabular-nums tracking-tight ${accentClass}`}
+          >
             {value}
           </span>
           {sub && (
@@ -527,7 +563,13 @@ function KpiCard({
 
 // ─── Chart wrapper ─────────────────────────────────────────────────────────────
 
-function Chart({ children, height = 300 }: { children: React.ReactNode; height?: number }) {
+function Chart({
+  children,
+  height = 300,
+}: {
+  children: React.ReactNode;
+  height?: number;
+}) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -535,7 +577,12 @@ function Chart({ children, height = 300 }: { children: React.ReactNode; height?:
   }, []);
 
   if (!mounted) {
-    return <div style={{ width: "100%", height }} className="rounded-xl bg-slate-100/60 dark:bg-zinc-900/40" />;
+    return (
+      <div
+        style={{ width: "100%", height }}
+        className="rounded-xl bg-slate-100/60 dark:bg-zinc-900/40"
+      />
+    );
   }
 
   return (
@@ -547,10 +594,18 @@ function Chart({ children, height = 300 }: { children: React.ReactNode; height?:
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/40 p-6 shadow-sm dark:border-zinc-800/80 dark:from-zinc-900 dark:to-zinc-900/40">
-      <p className="mb-5 text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{title}</p>
+      <p className="mb-5 text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+        {title}
+      </p>
       {children}
     </div>
   );
@@ -588,9 +643,16 @@ function FilterSection({
             className={`h-3 w-3 text-zinc-400 transition-transform duration-150 ${
               open ? "" : "-rotate-90"
             }`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19 9l-7 7-7-7"
+            />
           </svg>
         </span>
       </button>
@@ -601,8 +663,10 @@ function FilterSection({
 
 // Locale-independent compact formatter — avoids SSR/client hydration mismatch
 function fmtNum(v: number): string {
-  if (v >= 1_000_000) return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v / 1_000_000)}M`;
-  if (v >= 1_000)     return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(v / 1_000))}K`;
+  if (v >= 1_000_000)
+    return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v / 1_000_000)}M`;
+  if (v >= 1_000)
+    return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(v / 1_000))}K`;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(v);
 }
 
@@ -621,8 +685,14 @@ function NumberRangeFilter({
 }) {
   const fmt = formatter ?? fmtNum;
   const rangeWidth = bounds[1] - bounds[0] || 1;
-  const leftPct  = Math.max(0, Math.min(100, ((value[0] - bounds[0]) / rangeWidth) * 100));
-  const rightPct = Math.max(0, Math.min(100, ((value[1] - bounds[0]) / rangeWidth) * 100));
+  const leftPct = Math.max(
+    0,
+    Math.min(100, ((value[0] - bounds[0]) / rangeWidth) * 100),
+  );
+  const rightPct = Math.max(
+    0,
+    Math.min(100, ((value[1] - bounds[0]) / rangeWidth) * 100),
+  );
 
   return (
     <div className="px-1 pt-8 pb-1">
@@ -656,7 +726,9 @@ function NumberRangeFilter({
           max={bounds[1]}
           step={step}
           value={value[0]}
-          onChange={(e) => onChange(clampRange([Number(e.target.value), value[1]], bounds))}
+          onChange={(e) =>
+            onChange(clampRange([Number(e.target.value), value[1]], bounds))
+          }
         />
         {/* Max thumb */}
         <input
@@ -666,7 +738,9 @@ function NumberRangeFilter({
           max={bounds[1]}
           step={step}
           value={value[1]}
-          onChange={(e) => onChange(clampRange([value[0], Number(e.target.value)], bounds))}
+          onChange={(e) =>
+            onChange(clampRange([value[0], Number(e.target.value)], bounds))
+          }
         />
       </div>
       {/* Bound labels */}
@@ -708,7 +782,9 @@ function NumberRangeFilter({
 function EmptyState({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/40 p-8 text-center dark:border-zinc-800/80 dark:bg-zinc-900/40">
-      <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{title}</p>
+      <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+        {title}
+      </p>
       <p className="mt-1 text-xs text-zinc-500">{hint}</p>
     </div>
   );
@@ -732,34 +808,71 @@ export default function Home() {
   const [sources, setSources] = useState<string[]>([]);
   const [regionMode, setRegionMode] = useState<RegionMode>("all");
   const [minRegionAds, setMinRegionAds] = useState<number>(50);
-  const [binaPriceBounds, setBinaPriceBounds] = useState<[number, number]>([0, 1_000_000]);
-  const [binaAreaBounds, setBinaAreaBounds] = useState<[number, number]>([0, 2_000]);
-  const [binaUnitBounds, setBinaUnitBounds] = useState<[number, number]>([0, 10_000]);
-  const [binaPriceRange, setBinaPriceRange] = useState<[number, number]>([0, 1_000_000]);
-  const [binaAreaRange, setBinaAreaRange] = useState<[number, number]>([0, 2_000]);
-  const [binaUnitRange, setBinaUnitRange] = useState<[number, number]>([0, 10_000]);
+  const [binaPriceBounds, setBinaPriceBounds] = useState<[number, number]>([
+    0, 1_000_000,
+  ]);
+  const [binaAreaBounds, setBinaAreaBounds] = useState<[number, number]>([
+    0, 2_000,
+  ]);
+  const [binaUnitBounds, setBinaUnitBounds] = useState<[number, number]>([
+    0, 10_000,
+  ]);
+  const [binaPriceRange, setBinaPriceRange] = useState<[number, number]>([
+    0, 1_000_000,
+  ]);
+  const [binaAreaRange, setBinaAreaRange] = useState<[number, number]>([
+    0, 2_000,
+  ]);
+  const [binaUnitRange, setBinaUnitRange] = useState<[number, number]>([
+    0, 10_000,
+  ]);
 
-  const [marketsPriceBounds, setMarketsPriceBounds] = useState<[number, number]>([0, 1_000]);
-  const [marketsPriceRange, setMarketsPriceRange] = useState<[number, number]>([0, 1_000]);
+  const [marketsPriceBounds, setMarketsPriceBounds] = useState<
+    [number, number]
+  >([0, 1_000]);
+  const [marketsPriceRange, setMarketsPriceRange] = useState<[number, number]>([
+    0, 1_000,
+  ]);
 
   const [turboBrandMode, setTurboBrandMode] = useState<BrandMode>("all");
   const [turboMinAds, setTurboMinAds] = useState<number>(20);
   const [turboFuelTypes, setTurboFuelTypes] = useState<string[]>([]);
   const [turboBodyTypes, setTurboBodyTypes] = useState<string[]>([]);
   const [turboTransmissions, setTurboTransmissions] = useState<string[]>([]);
-  const [turboPriceBounds, setTurboPriceBounds] = useState<[number, number]>([0, 1_000_000]);
-  const [turboYearBounds, setTurboYearBounds] = useState<[number, number]>([1970, 2026]);
-  const [turboMileageBounds, setTurboMileageBounds] = useState<[number, number]>([0, 500_000]);
-  const [turboPriceRange, setTurboPriceRange] = useState<[number, number]>([0, 1_000_000]);
-  const [turboYearRange, setTurboYearRange] = useState<[number, number]>([1970, 2026]);
-  const [turboMileageRange, setTurboMileageRange] = useState<[number, number]>([0, 500_000]);
+  const [turboPriceBounds, setTurboPriceBounds] = useState<[number, number]>([
+    0, 1_000_000,
+  ]);
+  const [turboYearBounds, setTurboYearBounds] = useState<[number, number]>([
+    1970, 2026,
+  ]);
+  const [turboMileageBounds, setTurboMileageBounds] = useState<
+    [number, number]
+  >([0, 500_000]);
+  const [turboPriceRange, setTurboPriceRange] = useState<[number, number]>([
+    0, 1_000_000,
+  ]);
+  const [turboYearRange, setTurboYearRange] = useState<[number, number]>([
+    1970, 2026,
+  ]);
+  const [turboMileageRange, setTurboMileageRange] = useState<[number, number]>([
+    0, 500_000,
+  ]);
 
   // Breakdown dimension selection per project
-  const [breakdownDimBina, setBreakdownDimBina] = useState<"rooms" | "region" | "category">("rooms");
-  const [breakdownDimMarkets, setBreakdownDimMarkets] = useState<"source" | "category" | "brand">("source");
-  const [breakdownDimTurbo, setBreakdownDimTurbo] = useState<"fuelType" | "bodyType" | "transmission">("fuelType");
+  const [breakdownDimBina, setBreakdownDimBina] = useState<
+    "rooms" | "region" | "category"
+  >("rooms");
+  const [breakdownDimMarkets, setBreakdownDimMarkets] = useState<
+    "source" | "category" | "brand"
+  >("source");
+  const [breakdownDimTurbo, setBreakdownDimTurbo] = useState<
+    "fuelType" | "bodyType" | "transmission"
+  >("fuelType");
 
-  const allRooms = useMemo(() => ((meta.rooms as number[]) ?? []).map(String), [meta.rooms]);
+  const allRooms = useMemo(
+    () => ((meta.rooms as number[]) ?? []).map(String),
+    [meta.rooms],
+  );
   const t = (key: string) => I18N[lang][key] ?? key;
   const dateLocale = lang === "az" ? "az-AZ" : "en-US";
   const isLight = theme === "light";
@@ -772,7 +885,10 @@ export default function Home() {
       borderRadius: "0.75rem",
       fontSize: "0.8rem",
     },
-    labelStyle: { color: isLight ? "#18181b" : "#e4e4e7", fontWeight: 600 as const },
+    labelStyle: {
+      color: isLight ? "#18181b" : "#e4e4e7",
+      fontWeight: 600 as const,
+    },
     itemStyle: { color: isLight ? "#52525b" : "#a1a1aa" },
   };
 
@@ -784,7 +900,10 @@ export default function Home() {
 
   // 1. Initial theme load from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem("dashboard-theme") as "dark" | "light" | null;
+    const saved = localStorage.getItem("dashboard-theme") as
+      | "dark"
+      | "light"
+      | null;
     if (saved) {
       setTheme(saved);
     } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
@@ -824,9 +943,21 @@ export default function Home() {
       if (categories.length !== mc.length) n++;
       const roomOpts = ((meta.rooms as number[]) ?? []).map(String);
       if (rooms.length !== roomOpts.length) n++;
-      if (binaPriceRange[0] !== binaPriceBounds[0] || binaPriceRange[1] !== binaPriceBounds[1]) n++;
-      if (binaAreaRange[0] !== binaAreaBounds[0] || binaAreaRange[1] !== binaAreaBounds[1]) n++;
-      if (binaUnitRange[0] !== binaUnitBounds[0] || binaUnitRange[1] !== binaUnitBounds[1]) n++;
+      if (
+        binaPriceRange[0] !== binaPriceBounds[0] ||
+        binaPriceRange[1] !== binaPriceBounds[1]
+      )
+        n++;
+      if (
+        binaAreaRange[0] !== binaAreaBounds[0] ||
+        binaAreaRange[1] !== binaAreaBounds[1]
+      )
+        n++;
+      if (
+        binaUnitRange[0] !== binaUnitBounds[0] ||
+        binaUnitRange[1] !== binaUnitBounds[1]
+      )
+        n++;
     } else if (project === "Markets") {
       const ms = (meta.sources as string[]) ?? [];
       if (sources.length !== ms.length) n++;
@@ -834,7 +965,11 @@ export default function Home() {
       if (categories.length !== mc.length) n++;
       const mb = (meta.brands as string[]) ?? [];
       if (brands.length !== mb.length) n++;
-      if (marketsPriceRange[0] !== marketsPriceBounds[0] || marketsPriceRange[1] !== marketsPriceBounds[1]) n++;
+      if (
+        marketsPriceRange[0] !== marketsPriceBounds[0] ||
+        marketsPriceRange[1] !== marketsPriceBounds[1]
+      )
+        n++;
     } else {
       const mb = (meta.brands as string[]) ?? [];
       if (brands.length !== mb.length) n++;
@@ -844,17 +979,50 @@ export default function Home() {
       if (turboBodyTypes.length !== mbo.length) n++;
       const mt = (meta.transmissions as string[]) ?? [];
       if (turboTransmissions.length !== mt.length) n++;
-      if (turboPriceRange[0] !== turboPriceBounds[0] || turboPriceRange[1] !== turboPriceBounds[1]) n++;
-      if (turboYearRange[0] !== turboYearBounds[0] || turboYearRange[1] !== turboYearBounds[1]) n++;
-      if (turboMileageRange[0] !== turboMileageBounds[0] || turboMileageRange[1] !== turboMileageBounds[1]) n++;
+      if (
+        turboPriceRange[0] !== turboPriceBounds[0] ||
+        turboPriceRange[1] !== turboPriceBounds[1]
+      )
+        n++;
+      if (
+        turboYearRange[0] !== turboYearBounds[0] ||
+        turboYearRange[1] !== turboYearBounds[1]
+      )
+        n++;
+      if (
+        turboMileageRange[0] !== turboMileageBounds[0] ||
+        turboMileageRange[1] !== turboMileageBounds[1]
+      )
+        n++;
     }
     return n;
   }, [
-    project, meta, periods, operationType, regions, categories, rooms, sources, brands,
-    turboFuelTypes, turboBodyTypes, turboTransmissions,
-    binaPriceRange, binaPriceBounds, binaAreaRange, binaAreaBounds, binaUnitRange, binaUnitBounds,
-    marketsPriceRange, marketsPriceBounds,
-    turboPriceRange, turboPriceBounds, turboYearRange, turboYearBounds, turboMileageRange, turboMileageBounds,
+    project,
+    meta,
+    periods,
+    operationType,
+    regions,
+    categories,
+    rooms,
+    sources,
+    brands,
+    turboFuelTypes,
+    turboBodyTypes,
+    turboTransmissions,
+    binaPriceRange,
+    binaPriceBounds,
+    binaAreaRange,
+    binaAreaBounds,
+    binaUnitRange,
+    binaUnitBounds,
+    marketsPriceRange,
+    marketsPriceBounds,
+    turboPriceRange,
+    turboPriceBounds,
+    turboYearRange,
+    turboYearBounds,
+    turboMileageRange,
+    turboMileageBounds,
   ]);
 
   const resetCurrentProjectFilters = () => {
@@ -897,10 +1065,13 @@ export default function Home() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/dashboard?project=${encodeURIComponent(project)}`, {
-          signal: controller.signal,
-          cache: "no-store",
-        });
+        const response = await fetch(
+          `/api/dashboard?project=${encodeURIComponent(project)}`,
+          {
+            signal: controller.signal,
+            cache: "no-store",
+          },
+        );
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -918,13 +1089,22 @@ export default function Home() {
           setOperationType("Sale");
           setRegions((data.meta.regions as string[]) ?? []);
           setCategories((data.meta.categories as string[]) ?? []);
-          setRooms((((data.meta.rooms as number[]) ?? []).map(String)));
+          setRooms(((data.meta.rooms as number[]) ?? []).map(String));
           setRegionMode("all");
           setMinRegionAds(50);
 
-          const priceBounds = numericBounds(typed.map((r) => r.price), [0, 1_000_000]);
-          const areaBounds = numericBounds(typed.map((r) => r.area), [0, 2_000]);
-          const unitBounds = numericBounds(typed.map((r) => r.pricePerM2), [0, 10_000]);
+          const priceBounds = numericBounds(
+            typed.map((r) => r.price),
+            [0, 1_000_000],
+          );
+          const areaBounds = numericBounds(
+            typed.map((r) => r.area),
+            [0, 2_000],
+          );
+          const unitBounds = numericBounds(
+            typed.map((r) => r.pricePerM2),
+            [0, 10_000],
+          );
           setBinaPriceBounds(priceBounds);
           setBinaAreaBounds(areaBounds);
           setBinaUnitBounds(unitBounds);
@@ -938,7 +1118,10 @@ export default function Home() {
           setSources((data.meta.sources as string[]) ?? []);
           setCategories((data.meta.categories as string[]) ?? []);
           setBrands((data.meta.brands as string[]) ?? []);
-          const priceBounds = numericBounds(typed.map((r) => r.price), [0, 1_000]);
+          const priceBounds = numericBounds(
+            typed.map((r) => r.price),
+            [0, 1_000],
+          );
           setMarketsPriceBounds(priceBounds);
           setMarketsPriceRange(priceBounds);
         }
@@ -952,9 +1135,16 @@ export default function Home() {
           setTurboBodyTypes((data.meta.bodyTypes as string[]) ?? []);
           setTurboTransmissions((data.meta.transmissions as string[]) ?? []);
 
-          const priceBounds = numericBounds(typed.map((r) => r.price), [0, 1_000_000]);
-          const years = typed.map((r) => r.year).filter((v): v is number => v != null);
-          const mileage = typed.map((r) => r.mileage).filter((v): v is number => v != null);
+          const priceBounds = numericBounds(
+            typed.map((r) => r.price),
+            [0, 1_000_000],
+          );
+          const years = typed
+            .map((r) => r.year)
+            .filter((v): v is number => v != null);
+          const mileage = typed
+            .map((r) => r.mileage)
+            .filter((v): v is number => v != null);
           const yearBounds = numericBounds(years, [1970, 2026]);
           const mileageBounds = numericBounds(mileage, [0, 500_000]);
 
@@ -995,12 +1185,23 @@ export default function Home() {
         const okOp = r.operationType === operationType;
         const okCategory = categorySet.has(r.category);
         const okRoom = r.rooms === null ? false : roomSet.has(String(r.rooms));
-        const okPrice = r.price >= binaPriceRange[0] && r.price <= binaPriceRange[1];
+        const okPrice =
+          r.price >= binaPriceRange[0] && r.price <= binaPriceRange[1];
         const okArea = r.area >= binaAreaRange[0] && r.area <= binaAreaRange[1];
-        const okUnit = operationType === "Rent"
-          ? true
-          : (r.pricePerM2 >= binaUnitRange[0] && r.pricePerM2 <= binaUnitRange[1]);
-        return okPeriod && okOp && okCategory && okRoom && okPrice && okArea && okUnit;
+        const okUnit =
+          operationType === "Rent"
+            ? true
+            : r.pricePerM2 >= binaUnitRange[0] &&
+              r.pricePerM2 <= binaUnitRange[1];
+        return (
+          okPeriod &&
+          okOp &&
+          okCategory &&
+          okRoom &&
+          okPrice &&
+          okArea &&
+          okUnit
+        );
       });
 
       const counts = new Map<string, number>();
@@ -1036,7 +1237,8 @@ export default function Home() {
         const okSource = sourceSet.has(r.source);
         const okCategory = categorySet.has(r.category);
         const okBrand = brandSet.has(r.brand);
-        const okPrice = r.price >= marketsPriceRange[0] && r.price <= marketsPriceRange[1];
+        const okPrice =
+          r.price >= marketsPriceRange[0] && r.price <= marketsPriceRange[1];
         return okPeriod && okSource && okCategory && okBrand && okPrice;
       });
     }
@@ -1047,13 +1249,28 @@ export default function Home() {
     const transmissionSet = new Set(turboTransmissions);
     const base = typed.filter((r) => {
       const okPeriod = periodSet.has(r.period);
-      const okPrice = r.price >= turboPriceRange[0] && r.price <= turboPriceRange[1];
-      const okYear = r.year !== null && r.year >= turboYearRange[0] && r.year <= turboYearRange[1];
-      const okMileage = r.mileage !== null && r.mileage >= turboMileageRange[0] && r.mileage <= turboMileageRange[1];
+      const okPrice =
+        r.price >= turboPriceRange[0] && r.price <= turboPriceRange[1];
+      const okYear =
+        r.year !== null &&
+        r.year >= turboYearRange[0] &&
+        r.year <= turboYearRange[1];
+      const okMileage =
+        r.mileage !== null &&
+        r.mileage >= turboMileageRange[0] &&
+        r.mileage <= turboMileageRange[1];
       const okFuel = fuelSet.has(r.fuelType);
       const okBody = bodySet.has(r.bodyType);
       const okTransmission = transmissionSet.has(r.transmission);
-      return okPeriod && okPrice && okYear && okMileage && okFuel && okBody && okTransmission;
+      return (
+        okPeriod &&
+        okPrice &&
+        okYear &&
+        okMileage &&
+        okFuel &&
+        okBody &&
+        okTransmission
+      );
     });
 
     const counts = new Map<string, number>();
@@ -1152,12 +1369,18 @@ export default function Home() {
       latestLabel: latest?.dateLabel ?? "",
       history: prevs.map((p) => ({
         label: p.dateLabel,
-        value: p.medianPrice.toLocaleString("en-US", { maximumFractionDigits: 0 }),
+        value: p.medianPrice.toLocaleString("en-US", {
+          maximumFractionDigits: 0,
+        }),
       })),
       historyPct: prevs.map((p) => ({
         label: p.dateLabel,
         value: `${p.pctChange > 0 ? "+" : ""}${p.pctChange.toFixed(1)}%`,
-        accent: (p.pctChange > 0 ? "green" : p.pctChange < 0 ? "red" : "neutral") as "green" | "red" | "neutral",
+        accent: (p.pctChange > 0
+          ? "green"
+          : p.pctChange < 0
+            ? "red"
+            : "neutral") as "green" | "red" | "neutral",
       })),
     };
   }, [filteredRows, trend]);
@@ -1175,7 +1398,8 @@ export default function Home() {
       let price: number;
       if (project === "Bina.az") {
         const row = r as BinaRow;
-        if (breakdownDimBina === "rooms") key = row.rooms != null ? `${row.rooms}` : "?";
+        if (breakdownDimBina === "rooms")
+          key = row.rooms != null ? `${row.rooms}` : "?";
         else if (breakdownDimBina === "region") key = row.region;
         else key = row.category;
         price = operationType === "Sale" ? row.pricePerM2 : row.price;
@@ -1204,14 +1428,33 @@ export default function Home() {
       .filter((d) => d.count >= 5)
       .sort((a, b) => b.medianPrice - a.medianPrice)
       .slice(0, 20);
-  }, [filteredRows, project, operationType, breakdownDimBina, breakdownDimMarkets, breakdownDimTurbo]);
+  }, [
+    filteredRows,
+    project,
+    operationType,
+    breakdownDimBina,
+    breakdownDimMarkets,
+    breakdownDimTurbo,
+  ]);
 
   const breakdownDimLabel =
     project === "Bina.az"
-      ? { rooms: t("byRooms"), region: t("byRegion"), category: t("byCategory") }[breakdownDimBina]
+      ? {
+          rooms: t("byRooms"),
+          region: t("byRegion"),
+          category: t("byCategory"),
+        }[breakdownDimBina]
       : project === "Markets"
-      ? { source: t("bySource"), category: t("byCategory"), brand: t("byBrand") }[breakdownDimMarkets]
-      : { fuelType: t("byFuelType"), bodyType: t("byBodyType"), transmission: t("byTransmission") }[breakdownDimTurbo];
+        ? {
+            source: t("bySource"),
+            category: t("byCategory"),
+            brand: t("byBrand"),
+          }[breakdownDimMarkets]
+        : {
+            fuelType: t("byFuelType"),
+            bodyType: t("byBodyType"),
+            transmission: t("byTransmission"),
+          }[breakdownDimTurbo];
 
   const projects: { key: ProjectKey; icon: string }[] = [
     { key: "Bina.az", icon: "🏠" },
@@ -1223,14 +1466,18 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-slate-100 text-zinc-900 dark:from-zinc-950 dark:via-zinc-950 dark:to-black dark:text-zinc-100">
       {/* Top navbar */}
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-slate-200 bg-white/90 px-6 backdrop-blur supports-[backdrop-filter]:bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/90 dark:supports-[backdrop-filter]:bg-zinc-950/70">
-        <span className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-200">{t("marketAnalytics")}</span>
+        <span className="text-sm font-semibold tracking-tight text-zinc-700 dark:text-zinc-200">
+          {t("marketAnalytics")}
+        </span>
         <nav className="flex gap-1">
           {projects.map(({ key, icon }) => (
             <button
               key={key}
               onClick={() => setProject(key)}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                project === key ? "bg-slate-200 text-zinc-900 shadow dark:bg-zinc-800 dark:text-zinc-100" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                project === key
+                  ? "bg-slate-200 text-zinc-900 shadow dark:bg-zinc-800 dark:text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
               }`}
             >
               <span>{icon}</span>
@@ -1240,7 +1487,10 @@ export default function Home() {
         </nav>
         <div className="flex items-center gap-3 text-xs">
           <PillToggle
-            options={[{ label: "EN", value: "en" }, { label: "AZ", value: "az" }]}
+            options={[
+              { label: "EN", value: "en" },
+              { label: "AZ", value: "az" },
+            ]}
             value={lang}
             onChange={(value) => setLang(value as Lang)}
           />
@@ -1251,19 +1501,41 @@ export default function Home() {
             title={isLight ? t("darkMode") : t("lightMode")}
           >
             {isLight ? (
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+              <svg
+                className="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z"
+                />
               </svg>
             ) : (
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-5.66l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10A5 5 0 0012 7z" />
+              <svg
+                className="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-5.66l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10A5 5 0 0012 7z"
+                />
               </svg>
             )}
           </button>
           {loading ? (
             <span className="animate-pulse text-blue-400">{t("loading")}</span>
           ) : (
-            <span className="text-zinc-400 dark:text-zinc-600">{filteredRows.length.toLocaleString()} {t("rows")}</span>
+            <span className="text-zinc-400 dark:text-zinc-600">
+              {filteredRows.length.toLocaleString()} {t("rows")}
+            </span>
           )}
         </div>
       </header>
@@ -1302,7 +1574,10 @@ export default function Home() {
               <>
                 <FilterSection title={t("operation")}>
                   <PillToggle
-                    options={[{ label: "Sale", value: "Sale" }, { label: "Rent", value: "Rent" }]}
+                    options={[
+                      { label: "Sale", value: "Sale" },
+                      { label: "Rent", value: "Rent" },
+                    ]}
                     value={operationType}
                     onChange={(v) => setOperationType(v as "Sale" | "Rent")}
                   />
@@ -1323,23 +1598,43 @@ export default function Home() {
                     min={1}
                     max={5000}
                     value={minRegionAds}
-                    onChange={(e) => setMinRegionAds(Math.max(1, Number(e.target.value) || 1))}
+                    onChange={(e) =>
+                      setMinRegionAds(Math.max(1, Number(e.target.value) || 1))
+                    }
                     className="mt-2 w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
                     placeholder={t("minAdsRegion")}
                   />
                 </FilterSection>
                 <FilterSection title={t("regions")}>
-                  <CheckboxList label={t("regions")} options={(meta.regions as string[]) ?? []} value={regions} onChange={setRegions} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("regions")}
+                    options={(meta.regions as string[]) ?? []}
+                    value={regions}
+                    onChange={setRegions}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("categories")}>
-                  <CheckboxList label={t("categories")} options={(meta.categories as string[]) ?? []} value={categories} onChange={setCategories} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("categories")}
+                    options={(meta.categories as string[]) ?? []}
+                    value={categories}
+                    onChange={setCategories}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("rooms")}>
                   <div className="flex flex-wrap gap-2">
                     {allRooms.map((r) => (
                       <button
                         key={r}
-                        onClick={() => setRooms(rooms.includes(r) ? rooms.filter((x) => x !== r) : [...rooms, r])}
+                        onClick={() =>
+                          setRooms(
+                            rooms.includes(r)
+                              ? rooms.filter((x) => x !== r)
+                              : [...rooms, r],
+                          )
+                        }
                         className={`h-8 w-8 rounded-full border text-xs font-semibold transition-all ${
                           rooms.includes(r)
                             ? "border-blue-500 bg-blue-500/20 text-blue-600 dark:text-blue-300"
@@ -1352,14 +1647,26 @@ export default function Home() {
                   </div>
                 </FilterSection>
                 <FilterSection title={t("priceRange")}>
-                  <NumberRangeFilter value={binaPriceRange} bounds={binaPriceBounds} onChange={setBinaPriceRange} />
+                  <NumberRangeFilter
+                    value={binaPriceRange}
+                    bounds={binaPriceBounds}
+                    onChange={setBinaPriceRange}
+                  />
                 </FilterSection>
                 <FilterSection title={t("areaRange")}>
-                  <NumberRangeFilter value={binaAreaRange} bounds={binaAreaBounds} onChange={setBinaAreaRange} />
+                  <NumberRangeFilter
+                    value={binaAreaRange}
+                    bounds={binaAreaBounds}
+                    onChange={setBinaAreaRange}
+                  />
                 </FilterSection>
                 {operationType === "Sale" && (
                   <FilterSection title={t("unitPriceRange")}>
-                    <NumberRangeFilter value={binaUnitRange} bounds={binaUnitBounds} onChange={setBinaUnitRange} />
+                    <NumberRangeFilter
+                      value={binaUnitRange}
+                      bounds={binaUnitBounds}
+                      onChange={setBinaUnitRange}
+                    />
                   </FilterSection>
                 )}
               </>
@@ -1368,16 +1675,37 @@ export default function Home() {
             {project === "Markets" && (
               <>
                 <FilterSection title={t("sources")}>
-                  <SourcePills options={(meta.sources as string[]) ?? []} value={sources} onChange={setSources} />
+                  <SourcePills
+                    options={(meta.sources as string[]) ?? []}
+                    value={sources}
+                    onChange={setSources}
+                  />
                 </FilterSection>
                 <FilterSection title={t("categories")}>
-                  <CheckboxList label={t("categories")} options={(meta.categories as string[]) ?? []} value={categories} onChange={setCategories} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("categories")}
+                    options={(meta.categories as string[]) ?? []}
+                    value={categories}
+                    onChange={setCategories}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("brands")}>
-                  <CheckboxList label={t("brands")} options={(meta.brands as string[]) ?? []} value={brands} onChange={setBrands} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("brands")}
+                    options={(meta.brands as string[]) ?? []}
+                    value={brands}
+                    onChange={setBrands}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("priceRange")}>
-                  <NumberRangeFilter value={marketsPriceRange} bounds={marketsPriceBounds} onChange={setMarketsPriceRange} step={0.1} />
+                  <NumberRangeFilter
+                    value={marketsPriceRange}
+                    bounds={marketsPriceBounds}
+                    onChange={setMarketsPriceRange}
+                    step={0.1}
+                  />
                 </FilterSection>
               </>
             )}
@@ -1400,25 +1728,55 @@ export default function Home() {
                     min={1}
                     max={5000}
                     value={turboMinAds}
-                    onChange={(e) => setTurboMinAds(Math.max(1, Number(e.target.value) || 1))}
+                    onChange={(e) =>
+                      setTurboMinAds(Math.max(1, Number(e.target.value) || 1))
+                    }
                     className="mt-2 w-full rounded-xl border border-slate-300 bg-slate-100/60 px-3 py-2 text-xs text-zinc-700 outline-none focus:border-slate-400 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200 dark:focus:border-zinc-500"
                     placeholder={t("minAdsBrand")}
                   />
                 </FilterSection>
                 <FilterSection title={t("brands")}>
-                  <CheckboxList label={t("brands")} options={(meta.brands as string[]) ?? []} value={brands} onChange={setBrands} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("brands")}
+                    options={(meta.brands as string[]) ?? []}
+                    value={brands}
+                    onChange={setBrands}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("fuelTypes")}>
-                  <CheckboxList label={t("fuelTypes")} options={(meta.fuelTypes as string[]) ?? []} value={turboFuelTypes} onChange={setTurboFuelTypes} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("fuelTypes")}
+                    options={(meta.fuelTypes as string[]) ?? []}
+                    value={turboFuelTypes}
+                    onChange={setTurboFuelTypes}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("transmissions")}>
-                  <CheckboxList label={t("transmissions")} options={(meta.transmissions as string[]) ?? []} value={turboTransmissions} onChange={setTurboTransmissions} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("transmissions")}
+                    options={(meta.transmissions as string[]) ?? []}
+                    value={turboTransmissions}
+                    onChange={setTurboTransmissions}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("bodyTypes")}>
-                  <CheckboxList label={t("bodyTypes")} options={(meta.bodyTypes as string[]) ?? []} value={turboBodyTypes} onChange={setTurboBodyTypes} ui={checkboxUi} />
+                  <CheckboxList
+                    label={t("bodyTypes")}
+                    options={(meta.bodyTypes as string[]) ?? []}
+                    value={turboBodyTypes}
+                    onChange={setTurboBodyTypes}
+                    ui={checkboxUi}
+                  />
                 </FilterSection>
                 <FilterSection title={t("priceRange")}>
-                  <NumberRangeFilter value={turboPriceRange} bounds={turboPriceBounds} onChange={setTurboPriceRange} />
+                  <NumberRangeFilter
+                    value={turboPriceRange}
+                    bounds={turboPriceBounds}
+                    onChange={setTurboPriceRange}
+                  />
                 </FilterSection>
                 <FilterSection title={t("yearRange")}>
                   <NumberRangeFilter
@@ -1429,7 +1787,11 @@ export default function Home() {
                   />
                 </FilterSection>
                 <FilterSection title={t("mileageRange")}>
-                  <NumberRangeFilter value={turboMileageRange} bounds={turboMileageBounds} onChange={setTurboMileageRange} />
+                  <NumberRangeFilter
+                    value={turboMileageRange}
+                    bounds={turboMileageBounds}
+                    onChange={setTurboMileageRange}
+                  />
                 </FilterSection>
               </>
             )}
@@ -1445,8 +1807,12 @@ export default function Home() {
           )}
           <div className="flex items-baseline justify-between">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">{project} {t("dashboard")}</h1>
-              <p className="mt-0.5 text-xs text-zinc-500">{t("aggregatedMedian")}</p>
+              <h1 className="text-2xl font-bold tracking-tight">
+                {project} {t("dashboard")}
+              </h1>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                {t("aggregatedMedian")}
+              </p>
             </div>
           </div>
 
@@ -1458,7 +1824,9 @@ export default function Home() {
             />
             <KpiCard
               label={medianLabel}
-              value={kpis.medianValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+              value={kpis.medianValue.toLocaleString("en-US", {
+                maximumFractionDigits: 0,
+              })}
               sub={kpis.latestLabel}
               history={kpis.history}
             />
@@ -1466,8 +1834,17 @@ export default function Home() {
               label={t("latestPeriodChange")}
               value={`${kpis.latestPct > 0 ? "+" : ""}${kpis.latestPct.toFixed(2)}%`}
               sub={kpis.latestLabel}
-              accent={kpis.latestPct > 0 ? "green" : kpis.latestPct < 0 ? "red" : "neutral"}
-              history={kpis.historyPct.map((h) => ({ label: h.label, value: h.value }))}
+              accent={
+                kpis.latestPct > 0
+                  ? "green"
+                  : kpis.latestPct < 0
+                    ? "red"
+                    : "neutral"
+              }
+              history={kpis.historyPct.map((h) => ({
+                label: h.label,
+                value: h.value,
+              }))}
             />
           </div>
 
@@ -1477,24 +1854,89 @@ export default function Home() {
             <>
               <Section title={t("priceTrend")}>
                 <Chart height={300}>
-                  <LineChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="dateLabel" stroke={chartColors.axis} tick={{ fill: chartColors.tick, fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis stroke={chartColors.axis} tick={{ fill: chartColors.tick, fontSize: 11 }} axisLine={false} tickLine={false} width={70} />
-                    <Tooltip {...shared} formatter={(v: number | undefined) => [(v ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }), medianLabel]} />
-                    <Line type="monotone" dataKey="medianPrice" stroke="#60a5fa" strokeWidth={2.5} dot={{ r: 4, fill: "#60a5fa", strokeWidth: 0 }} activeDot={{ r: 6 }} />
+                  <LineChart
+                    data={trend}
+                    margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      stroke={chartColors.grid}
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="dateLabel"
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={70}
+                    />
+                    <Tooltip
+                      {...shared}
+                      formatter={(v: number | undefined) => [
+                        (v ?? 0).toLocaleString("en-US", {
+                          maximumFractionDigits: 0,
+                        }),
+                        medianLabel,
+                      ]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="medianPrice"
+                      stroke="#60a5fa"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: "#60a5fa", strokeWidth: 0 }}
+                      activeDot={{ r: 6 }}
+                    />
                   </LineChart>
                 </Chart>
               </Section>
 
               <Section title={t("percentChangeTitle")}>
                 <Chart height={240}>
-                  <LineChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="dateLabel" stroke={chartColors.axis} tick={{ fill: chartColors.tick, fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis stroke={chartColors.axis} tick={{ fill: chartColors.tick, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v.toFixed(1)}%`} width={55} />
-                    <ReferenceLine y={0} stroke={chartColors.grid} strokeDasharray="4 4" />
-                    <Tooltip {...shared} formatter={(_v: unknown, _n: unknown, entry: { payload?: TrendPoint }) => [(entry?.payload?.pctLabel ?? ""), t("change")]} />
+                  <LineChart
+                    data={trend}
+                    margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      stroke={chartColors.grid}
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="dateLabel"
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `${v.toFixed(1)}%`}
+                      width={55}
+                    />
+                    <ReferenceLine
+                      y={0}
+                      stroke={chartColors.grid}
+                      strokeDasharray="4 4"
+                    />
+                    <Tooltip
+                      {...shared}
+                      formatter={(
+                        _v: unknown,
+                        _n: unknown,
+                        entry: { payload?: TrendPoint },
+                      ) => [entry?.payload?.pctLabel ?? "", t("change")]}
+                    />
                     <Line
                       type="monotone"
                       dataKey="pctChange"
@@ -1502,8 +1944,18 @@ export default function Home() {
                       strokeWidth={2.5}
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       dot={(p: any) => (
-                        <circle key={`dot-${p.cx}`} cx={p.cx} cy={p.cy} r={4}
-                          fill={(p.payload?.pctChange ?? 0) < 0 ? "#f43f5e" : "#34d399"} stroke="none" />
+                        <circle
+                          key={`dot-${p.cx}`}
+                          cx={p.cx}
+                          cy={p.cy}
+                          r={4}
+                          fill={
+                            (p.payload?.pctChange ?? 0) < 0
+                              ? "#f43f5e"
+                              : "#34d399"
+                          }
+                          stroke="none"
+                        />
                       )}
                       activeDot={{ r: 6 }}
                     />
@@ -1515,28 +1967,54 @@ export default function Home() {
                 <Section title={`${t("breakdown")} — ${breakdownDimLabel}`}>
                   {/* Dimension selector */}
                   <div className="mb-3 flex items-center gap-2">
-                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t("groupBy")}:</span>
+                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                      {t("groupBy")}:
+                    </span>
                     <div className="flex flex-wrap gap-1">
                       {(project === "Bina.az"
-                        ? (["rooms", "region", "category"] as const).map((d) => ({
-                            id: d,
-                            label: t(d === "rooms" ? "byRooms" : d === "region" ? "byRegion" : "byCategory"),
-                            active: breakdownDimBina === d,
-                            set: () => setBreakdownDimBina(d),
-                          }))
+                        ? (["rooms", "region", "category"] as const).map(
+                            (d) => ({
+                              id: d,
+                              label: t(
+                                d === "rooms"
+                                  ? "byRooms"
+                                  : d === "region"
+                                    ? "byRegion"
+                                    : "byCategory",
+                              ),
+                              active: breakdownDimBina === d,
+                              set: () => setBreakdownDimBina(d),
+                            }),
+                          )
                         : project === "Markets"
-                        ? (["source", "category", "brand"] as const).map((d) => ({
-                            id: d,
-                            label: t(d === "source" ? "bySource" : d === "category" ? "byCategory" : "byBrand"),
-                            active: breakdownDimMarkets === d,
-                            set: () => setBreakdownDimMarkets(d),
-                          }))
-                        : (["fuelType", "bodyType", "transmission"] as const).map((d) => ({
-                            id: d,
-                            label: t(d === "fuelType" ? "byFuelType" : d === "bodyType" ? "byBodyType" : "byTransmission"),
-                            active: breakdownDimTurbo === d,
-                            set: () => setBreakdownDimTurbo(d),
-                          }))
+                          ? (["source", "category", "brand"] as const).map(
+                              (d) => ({
+                                id: d,
+                                label: t(
+                                  d === "source"
+                                    ? "bySource"
+                                    : d === "category"
+                                      ? "byCategory"
+                                      : "byBrand",
+                                ),
+                                active: breakdownDimMarkets === d,
+                                set: () => setBreakdownDimMarkets(d),
+                              }),
+                            )
+                          : (
+                              ["fuelType", "bodyType", "transmission"] as const
+                            ).map((d) => ({
+                              id: d,
+                              label: t(
+                                d === "fuelType"
+                                  ? "byFuelType"
+                                  : d === "bodyType"
+                                    ? "byBodyType"
+                                    : "byTransmission",
+                              ),
+                              active: breakdownDimTurbo === d,
+                              set: () => setBreakdownDimTurbo(d),
+                            }))
                       ).map((opt) => (
                         <button
                           key={opt.id}
@@ -1558,14 +2036,22 @@ export default function Home() {
                       layout="vertical"
                       margin={{ top: 4, right: 16, left: 4, bottom: 0 }}
                     >
-                      <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" horizontal={false} />
+                      <CartesianGrid
+                        stroke={chartColors.grid}
+                        strokeDasharray="3 3"
+                        horizontal={false}
+                      />
                       <XAxis
                         type="number"
                         stroke={chartColors.axis}
                         tick={{ fill: chartColors.tick, fontSize: 10 }}
                         axisLine={false}
                         tickLine={false}
-                        tickFormatter={(v) => v.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                        tickFormatter={(v) =>
+                          v.toLocaleString("en-US", {
+                            maximumFractionDigits: 0,
+                          })
+                        }
                       />
                       <YAxis
                         type="category"
@@ -1578,9 +2064,18 @@ export default function Home() {
                       />
                       <Tooltip
                         {...shared}
-                        formatter={(v: number | undefined) => [(v ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 }), medianLabel]}
+                        formatter={(v: number | undefined) => [
+                          (v ?? 0).toLocaleString("en-US", {
+                            maximumFractionDigits: 0,
+                          }),
+                          medianLabel,
+                        ]}
                       />
-                      <Bar dataKey="medianPrice" radius={[0, 4, 4, 0]} maxBarSize={28}>
+                      <Bar
+                        dataKey="medianPrice"
+                        radius={[0, 4, 4, 0]}
+                        maxBarSize={28}
+                      >
                         {breakdownData.map((_entry, index) => (
                           <Cell
                             key={`cell-${index}`}
