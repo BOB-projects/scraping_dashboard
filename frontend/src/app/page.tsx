@@ -47,13 +47,22 @@ type TurboRow = {
   transmission: string;
 };
 
+type AnyRow = BinaRow | MarketsRow | TurboRow;
+
 type RegionMode = "all" | "top10" | "top20" | "custom";
 type BrandMode = "all" | "top10" | "top20" | "custom";
 
 type ApiResponse = {
   project: ProjectKey;
-  rows: BinaRow[] | MarketsRow[] | TurboRow[];
-  meta: Record<string, unknown>;
+  rows: AnyRow[];
+  meta?: Record<string, unknown>;
+  page?: {
+    cursor: number;
+    nextCursor: number | null;
+    hasMore: boolean;
+    total: number;
+    pageSize: number;
+  };
 };
 
 type TrendPoint = {
@@ -1060,34 +1069,64 @@ export default function Home() {
   useEffect(() => {
     let isActive = true;
     const controller = new AbortController();
+    const pageSize = 10_000;
 
     const run = async () => {
       setLoading(true);
       setError(null);
       try {
         const route = project === "Bina.az" ? "/api/data/bina" : project === "Markets" ? "/api/data/markets" : "/api/data/turbo";
-        const response = await fetch(route, {
-          signal: controller.signal,
-          // Removed cache: 'no-store' to allow SSG and browser caching
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const mergedRows: AnyRow[] = [];
+        let mergedMeta: Record<string, unknown> = {};
+        let cursor = 0;
+
+        while (true) {
+          const query = new URLSearchParams({
+            cursor: String(cursor),
+            pageSize: String(pageSize),
+            includeMeta: Object.keys(mergedMeta).length === 0 ? "1" : "0",
+          });
+          const response = await fetch(`${route}?${query.toString()}`, {
+            signal: controller.signal,
+            cache: "force-cache",
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const pageData: ApiResponse = await response.json();
+          mergedRows.push(...pageData.rows);
+          if (Object.keys(mergedMeta).length === 0 && pageData.meta) {
+            mergedMeta = pageData.meta;
+          }
+
+          const nextCursor = pageData.page?.nextCursor;
+          if (nextCursor === null || nextCursor === undefined) {
+            break;
+          }
+          cursor = nextCursor;
         }
-        const data: ApiResponse = await response.json();
+
+        const data: ApiResponse = {
+          project,
+          rows: mergedRows,
+          meta: mergedMeta,
+        };
+
         if (!isActive) return;
 
         setRows(data.rows);
-        setMeta(data.meta);
+        setMeta(data.meta ?? {});
 
-        const initialPeriods = (data.meta.periods as string[]) ?? [];
+        const initialPeriods = (data.meta?.periods as string[]) ?? [];
         setPeriods(initialPeriods);
 
         if (project === "Bina.az") {
           const typed = data.rows as BinaRow[];
           setOperationType("Sale");
-          setRegions((data.meta.regions as string[]) ?? []);
-          setCategories((data.meta.categories as string[]) ?? []);
-          setRooms(((data.meta.rooms as number[]) ?? []).map(String));
+          setRegions((data.meta?.regions as string[]) ?? []);
+          setCategories((data.meta?.categories as string[]) ?? []);
+          setRooms(((data.meta?.rooms as number[]) ?? []).map(String));
           setRegionMode("all");
           setMinRegionAds(50);
 
@@ -1113,9 +1152,9 @@ export default function Home() {
 
         if (project === "Markets") {
           const typed = data.rows as MarketsRow[];
-          setSources((data.meta.sources as string[]) ?? []);
-          setCategories((data.meta.categories as string[]) ?? []);
-          setBrands((data.meta.brands as string[]) ?? []);
+          setSources((data.meta?.sources as string[]) ?? []);
+          setCategories((data.meta?.categories as string[]) ?? []);
+          setBrands((data.meta?.brands as string[]) ?? []);
           const priceBounds = numericBounds(
             typed.map((r) => r.price),
             [0, 1_000],
@@ -1126,12 +1165,12 @@ export default function Home() {
 
         if (project === "Turbo.az") {
           const typed = data.rows as TurboRow[];
-          setBrands((data.meta.brands as string[]) ?? []);
+          setBrands((data.meta?.brands as string[]) ?? []);
           setTurboBrandMode("all");
           setTurboMinAds(20);
-          setTurboFuelTypes((data.meta.fuelTypes as string[]) ?? []);
-          setTurboBodyTypes((data.meta.bodyTypes as string[]) ?? []);
-          setTurboTransmissions((data.meta.transmissions as string[]) ?? []);
+          setTurboFuelTypes((data.meta?.fuelTypes as string[]) ?? []);
+          setTurboBodyTypes((data.meta?.bodyTypes as string[]) ?? []);
+          setTurboTransmissions((data.meta?.transmissions as string[]) ?? []);
 
           const priceBounds = numericBounds(
             typed.map((r) => r.price),
