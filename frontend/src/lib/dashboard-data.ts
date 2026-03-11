@@ -94,14 +94,19 @@ async function readParquetRows(filePath: string): Promise<Record<string, unknown
 }
 
 async function listParquetFiles(dir: string): Promise<string[]> {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  const out: string[] = [];
-  for (const e of entries) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...(await listParquetFiles(p)));
-    else if (e.isFile() && e.name.endsWith(".parquet")) out.push(p);
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const out: string[] = [];
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) out.push(...(await listParquetFiles(p)));
+      else if (e.isFile() && e.name.endsWith(".parquet")) out.push(p);
+    }
+    return out;
+  } catch (err) {
+    console.error(`Failed to list parquet files in ${dir}:`, err);
+    return [];
   }
-  return out;
 }
 
 export async function loadBinaRows(): Promise<BinaRow[]> {

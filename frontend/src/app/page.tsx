@@ -276,6 +276,47 @@ function withPercentChange(
   });
 }
 
+function buildChartDomain(
+  values: number[],
+  options?: {
+    paddingRatio?: number;
+    minPadding?: number;
+    clampMin?: number;
+    includeValues?: number[];
+  },
+): [number, number] {
+  const {
+    paddingRatio = 0.12,
+    minPadding = 1,
+    clampMin,
+    includeValues = [],
+  } = options ?? {};
+
+  const finiteValues = [...values, ...includeValues].filter((value) =>
+    Number.isFinite(value),
+  );
+  if (finiteValues.length === 0) return [0, 1];
+
+  let min = Math.min(...finiteValues);
+  let max = Math.max(...finiteValues);
+  const span = max - min;
+  const reference = span === 0 ? Math.max(Math.abs(max), 1) : span;
+  const padding = Math.max(reference * paddingRatio, minPadding);
+
+  min -= padding;
+  max += padding;
+
+  if (clampMin != null) {
+    min = Math.max(clampMin, min);
+  }
+
+  if (min === max) {
+    max = min + minPadding;
+  }
+
+  return [min, max];
+}
+
 // ─── Filter components ────────────────────────────────────────────────────────
 
 function MonthChips({
@@ -674,9 +715,13 @@ function FilterSection({
 function fmtNum(v: number): string {
   if (v >= 1_000_000)
     return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v / 1_000_000)}M`;
-  if (v >= 1_000)
-    return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(v / 1_000))}K`;
+  if (v >= 100_000)
+    return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v / 1_000)}K`;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(v);
+}
+
+function fmtSignedPercent(v: number): string {
+  return `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
 function NumberRangeFilter({
@@ -950,8 +995,7 @@ export default function Home() {
       if (regions.length !== mr.length) n++;
       const mc = (meta.categories as string[]) ?? [];
       if (categories.length !== mc.length) n++;
-      const roomOpts = ((meta.rooms as number[]) ?? []).map(String);
-      if (rooms.length !== roomOpts.length) n++;
+      if (rooms.length > 0) n++; // rooms=[] means "no filter"; any selection = active filter
       if (
         binaPriceRange[0] !== binaPriceBounds[0] ||
         binaPriceRange[1] !== binaPriceBounds[1]
@@ -1042,7 +1086,7 @@ export default function Home() {
       setOperationType("Sale");
       setRegions((meta.regions as string[]) ?? []);
       setCategories((meta.categories as string[]) ?? []);
-      setRooms(((meta.rooms as number[]) ?? []).map(String));
+      setRooms([]); // [] = no room filter
       setRegionMode("all");
       setMinRegionAds(50);
       setBinaPriceRange(binaPriceBounds);
@@ -1126,7 +1170,7 @@ export default function Home() {
           setOperationType("Sale");
           setRegions((data.meta?.regions as string[]) ?? []);
           setCategories((data.meta?.categories as string[]) ?? []);
-          setRooms(((data.meta?.rooms as number[]) ?? []).map(String));
+          setRooms([]); // [] = no room filter → shows all rows including null-room properties
           setRegionMode("all");
           setMinRegionAds(50);
 
@@ -1222,8 +1266,8 @@ export default function Home() {
       const rowsWithoutRegions = typed.filter((r) => {
         const okPeriod = periodSet.has(r.period);
         const okOp = r.operationType === operationType;
-        const okCategory = categorySet.has(r.category);
-        const okRoom = r.rooms === null ? false : roomSet.has(String(r.rooms));
+        const okCategory = categories.length === 0 ? true : categorySet.has(r.category);
+        const okRoom = rooms.length === 0 ? true : (r.rooms !== null && roomSet.has(String(r.rooms)));
         const okPrice = r.price >= binaPriceRange[0] && r.price <= binaPriceRange[1];
         const okArea = r.area >= binaAreaRange[0] && r.area <= binaAreaRange[1];
         const okUnit = operationType === "Rent" ? true : r.pricePerM2 >= binaUnitRange[0] && r.pricePerM2 <= binaUnitRange[1];
@@ -1250,9 +1294,9 @@ export default function Home() {
       const brandSet = new Set(brands);
       const rowsFiltered = typed.filter((r) => {
         const okPeriod = periodSet.has(r.period);
-        const okSource = sourceSet.has(r.source);
-        const okCategory = categorySet.has(r.category);
-        const okBrand = brandSet.has(r.brand);
+        const okSource = sources.length === 0 ? true : sourceSet.has(r.source);
+        const okCategory = categories.length === 0 ? true : categorySet.has(r.category);
+        const okBrand = brands.length === 0 ? true : brandSet.has(r.brand);
         const okPrice = r.price >= marketsPriceRange[0] && r.price <= marketsPriceRange[1];
         return okPeriod && okSource && okCategory && okBrand && okPrice;
       });
@@ -1267,11 +1311,11 @@ export default function Home() {
     const rowsWithoutBrands = typed.filter((r) => {
       const okPeriod = periodSet.has(r.period);
       const okPrice = r.price >= turboPriceRange[0] && r.price <= turboPriceRange[1];
-      const okYear = r.year !== null && r.year >= turboYearRange[0] && r.year <= turboYearRange[1];
-      const okMileage = r.mileage !== null && r.mileage >= turboMileageRange[0] && r.mileage <= turboMileageRange[1];
-      const okFuel = fuelSet.has(r.fuelType);
-      const okBody = bodySet.has(r.bodyType);
-      const okTransmission = transmissionSet.has(r.transmission);
+      const okYear = r.year === null || (r.year >= turboYearRange[0] && r.year <= turboYearRange[1]);
+      const okMileage = r.mileage === null || (r.mileage >= turboMileageRange[0] && r.mileage <= turboMileageRange[1]);
+      const okFuel = turboFuelTypes.length === 0 ? true : fuelSet.has(r.fuelType);
+      const okBody = turboBodyTypes.length === 0 ? true : bodySet.has(r.bodyType);
+      const okTransmission = turboTransmissions.length === 0 ? true : transmissionSet.has(r.transmission);
       return okPeriod && okPrice && okYear && okMileage && okFuel && okBody && okTransmission;
     });
 
@@ -1429,6 +1473,32 @@ export default function Home() {
     project === "Bina.az" && operationType === "Sale"
       ? t("medianPriceM2")
       : t("medianPrice");
+
+  const priceTrendDomain = useMemo(
+    () =>
+      buildChartDomain(
+        trend.map((point) => point.medianPrice),
+        {
+          paddingRatio: 0.14,
+          minPadding: project === "Bina.az" && operationType === "Sale" ? 10 : 100,
+          clampMin: 0,
+        },
+      ),
+    [trend, project, operationType],
+  );
+
+  const percentTrendDomain = useMemo(
+    () =>
+      buildChartDomain(
+        trend.map((point) => point.pctChange),
+        {
+          paddingRatio: 0.18,
+          minPadding: 0.5,
+          includeValues: [0],
+        },
+      ),
+    [trend],
+  );
 
   // Breakdown chart: group filtered rows by the selected dimension
   const breakdownData = useMemo(() => {
@@ -1896,7 +1966,7 @@ export default function Home() {
                 <Chart height={300}>
                   <LineChart
                     data={trend}
-                    margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                    margin={{ top: 32, right: 32, left: 0, bottom: 0 }}
                   >
                     <CartesianGrid
                       stroke={chartColors.grid}
@@ -1915,7 +1985,10 @@ export default function Home() {
                       tick={{ fill: chartColors.tick, fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
-                      width={70}
+                      domain={priceTrendDomain}
+                      tickCount={6}
+                      tickFormatter={(v: number) => fmtNum(v)}
+                      width={82}
                     />
                     <Tooltip
                       {...shared}
@@ -1931,6 +2004,30 @@ export default function Home() {
                       dataKey="medianPrice"
                       stroke="#60a5fa"
                       strokeWidth={2.5}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      label={(props: any) => {
+                        if (
+                          typeof props.x !== "number" ||
+                          typeof props.y !== "number" ||
+                          typeof props.value !== "number"
+                        ) {
+                          return null;
+                        }
+                        const isEven = (props.index ?? 0) % 2 === 0;
+                        const offsetY = isEven ? -12 : 18;
+                        return (
+                          <text
+                            x={props.x}
+                            y={props.y + offsetY}
+                            fill={chartColors.tick}
+                            fontSize={9}
+                            textAnchor="middle"
+                            dominantBaseline={isEven ? "middle" : "middle"}
+                          >
+                            {fmtNum(props.value)}
+                          </text>
+                        );
+                      }}
                       dot={{ r: 4, fill: "#60a5fa", strokeWidth: 0 }}
                       activeDot={{ r: 6 }}
                     />
@@ -1942,7 +2039,7 @@ export default function Home() {
                 <Chart height={240}>
                   <LineChart
                     data={trend}
-                    margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                    margin={{ top: 32, right: 32, left: 0, bottom: 0 }}
                   >
                     <CartesianGrid
                       stroke={chartColors.grid}
@@ -1961,6 +2058,8 @@ export default function Home() {
                       tick={{ fill: chartColors.tick, fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
+                      domain={percentTrendDomain}
+                      tickCount={6}
                       tickFormatter={(v) => `${v.toFixed(1)}%`}
                       width={55}
                     />
@@ -1982,6 +2081,32 @@ export default function Home() {
                       dataKey="pctChange"
                       stroke="#f97316"
                       strokeWidth={2.5}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      label={(
+                        props: any,
+                      ) => {
+                        if (
+                          typeof props.x !== "number" ||
+                          typeof props.y !== "number" ||
+                          typeof props.value !== "number"
+                        ) {
+                          return null;
+                        }
+                        const isEven = (props.index ?? 0) % 2 === 0;
+                        const offsetY = isEven ? -12 : 16;
+                        return (
+                          <text
+                            x={props.x}
+                            y={props.y + offsetY}
+                            fill={chartColors.tick}
+                            fontSize={9}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                          >
+                            {fmtSignedPercent(props.value)}
+                          </text>
+                        );
+                      }}
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       dot={(p: any) => (
                         <circle
