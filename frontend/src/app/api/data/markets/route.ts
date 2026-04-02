@@ -17,7 +17,7 @@ function clampPageSize(value: number): number {
 }
 
 function setCacheHeaders(response: NextResponse): NextResponse {
-  response.headers.set("Cache-Control", "public, s-maxage=600, stale-while-revalidate=86400");
+  response.headers.set("Cache-Control", "public, s-maxage=600, stale-while-revalidate=60");
   return response;
 }
 

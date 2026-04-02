@@ -35,7 +35,7 @@ export type TurboRow = {
 };
 
 const cache = new Map<string, { data: unknown; timestamp: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache
+const CACHE_TTL = 60 * 1000; // 1 minute cache
 
 function getCached<T>(key: string): T | null {
   const cached = cache.get(key);
