@@ -85,6 +85,24 @@ function normalizeSource(raw: string): string {
   return raw;
 }
 
+async function resolveDataDir(...segments: string[]): Promise<string> {
+  const candidates = [
+    path.resolve(process.cwd(), "public", "data", ...segments),
+    path.resolve(process.cwd(), "frontend", "public", "data", ...segments),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isDirectory()) return candidate;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return candidates[0];
+}
+
 async function readParquetRows(filePath: string): Promise<Record<string, unknown>[]> {
   const buf = await fs.readFile(filePath);
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -114,7 +132,7 @@ export async function loadBinaRows(): Promise<BinaRow[]> {
   const cached = getCached<BinaRow[]>(key);
   if (cached) return cached;
 
-  const baseDir = path.resolve(process.cwd(), "public", "data", "bina_az", "data");
+  const baseDir = await resolveDataDir("bina_az", "data");
   const files = await listParquetFiles(baseDir);
   const rows: BinaRow[] = [];
 
@@ -167,7 +185,7 @@ export async function loadMarketsRows(): Promise<MarketsRow[]> {
   const cached = getCached<MarketsRow[]>(key);
   if (cached) return cached;
 
-  const baseDir = path.resolve(process.cwd(), "public", "data", "markets", "data");
+  const baseDir = await resolveDataDir("markets", "data");
   const files = await listParquetFiles(baseDir);
   const rows: MarketsRow[] = [];
 
@@ -202,7 +220,7 @@ export async function loadTurboRows(): Promise<TurboRow[]> {
   const cached = getCached<TurboRow[]>(key);
   if (cached) return cached;
 
-  const baseDir = path.resolve(process.cwd(), "public", "data", "turbo_az", "data");
+  const baseDir = await resolveDataDir("turbo_az", "data");
   const files = await listParquetFiles(baseDir);
   const rows: TurboRow[] = [];
 
