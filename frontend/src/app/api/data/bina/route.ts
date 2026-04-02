@@ -22,7 +22,7 @@ function setCacheHeaders(response: NextResponse): NextResponse {
 }
 
 export async function GET(request: NextRequest) {
-  const rows = await loadBinaRows();
+  const rows = await loadBinaRows(request.nextUrl.origin);
   const cursor = parsePositiveInt(request.nextUrl.searchParams.get("cursor"), 0);
   const pageSize = clampPageSize(
     parsePositiveInt(request.nextUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE),

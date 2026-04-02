@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { parquetRead } from "hyparquet";
 
 export type ProjectKey = "Bina.az" | "Markets" | "Turbo.az";
@@ -37,6 +35,42 @@ export type TurboRow = {
 const cache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_TTL = 60 * 1000; // 1 minute cache
 
+type DataManifest = {
+  bina: string[];
+  markets: string[];
+  turbo: string[];
+};
+
+const FALLBACK_MANIFEST: DataManifest = {
+  bina: [
+    "bina_az/data/bina_sale_202601.parquet",
+    "bina_az/data/bina_sale_202602.parquet",
+    "bina_az/data/bina_sale_202603.parquet",
+    "bina_az/data/bina_sale_202604.parquet",
+    "bina_az/data/rent/bina_rent_202601.parquet",
+    "bina_az/data/rent/bina_rent_202602.parquet",
+    "bina_az/data/rent/bina_rent_202603.parquet",
+    "bina_az/data/rent/bina_rent_202604.parquet",
+  ],
+  markets: [
+    "markets/data/arazmarket_202602.parquet",
+    "markets/data/arazmarket_202603.parquet",
+    "markets/data/arazmarket_202604.parquet",
+    "markets/data/bazarstore_202602.parquet",
+    "markets/data/bazarstore_202603.parquet",
+    "markets/data/bazarstore_202604.parquet",
+    "markets/data/neptun_202602.parquet",
+    "markets/data/neptun_202603.parquet",
+    "markets/data/neptun_202604.parquet",
+  ],
+  turbo: [
+    "turbo_az/data/turbo_az_2026-01.parquet",
+    "turbo_az/data/turbo_az_2026-02.parquet",
+    "turbo_az/data/turbo_az_2026-03.parquet",
+    "turbo_az/data/turbo_az_2026-04.parquet",
+  ],
+};
+
 function getCached<T>(key: string): T | null {
   const cached = cache.get(key);
   if (!cached) return null;
@@ -63,6 +97,12 @@ function extractPeriodFromName(name: string): string {
   return "Unknown";
 }
 
+function basename(pathLike: string): string {
+  const normalized = pathLike.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  return parts.at(-1) ?? pathLike;
+}
+
 function toNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "bigint") return Number(value);
@@ -85,65 +125,90 @@ function normalizeSource(raw: string): string {
   return raw;
 }
 
-async function resolveDataDir(...segments: string[]): Promise<string> {
-  const candidates = [
-    path.resolve(process.cwd(), "public", "data", ...segments),
-    path.resolve(process.cwd(), "frontend", "public", "data", ...segments),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      const stat = await fs.stat(candidate);
-      if (stat.isDirectory()) return candidate;
-    } catch {
-      // try next candidate
-    }
-  }
-
-  return candidates[0];
+function toDataUrl(origin: string, relativePath: string): string {
+  const trimmed = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  const hasDataPrefix = trimmed.startsWith("data/");
+  return new URL(hasDataPrefix ? `/${trimmed}` : `/data/${trimmed}`, origin).toString();
 }
 
-async function readParquetRows(filePath: string): Promise<Record<string, unknown>[]> {
-  const buf = await fs.readFile(filePath);
-  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+async function readParquetRowsFromUrl(fileUrl: string): Promise<Record<string, unknown>[]> {
+  const response = await fetch(fileUrl, { cache: "force-cache" });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch parquet: ${fileUrl} (HTTP ${response.status})`);
+  }
+  const ab = await response.arrayBuffer();
   return new Promise((resolve, reject) => {
     parquetRead({ file: ab as ArrayBuffer, rowFormat: "object", onComplete: (rows) => resolve(rows as unknown as Record<string, unknown>[]) }).catch(reject);
   });
 }
 
-async function listParquetFiles(dir: string): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    const out: string[] = [];
-    for (const e of entries) {
-      const p = path.join(dir, e.name);
-      if (e.isDirectory()) out.push(...(await listParquetFiles(p)));
-      else if (e.isFile() && e.name.endsWith(".parquet")) out.push(p);
+function dedupeManifestPaths(paths: string[]): string[] {
+  const dedupedByBasename = new Map<string, string>();
+
+  for (const rawPath of paths) {
+    const normalizedPath = rawPath.replace(/\\/g, "/").replace(/^\/+/, "");
+    const key = basename(normalizedPath).toLowerCase();
+    const existing = dedupedByBasename.get(key);
+
+    if (!existing) {
+      dedupedByBasename.set(key, normalizedPath);
+      continue;
     }
-    return out;
+
+    // Prefer canonical files under nested /data paths when both variants exist.
+    if (normalizedPath.includes("/data/")) {
+      dedupedByBasename.set(key, normalizedPath);
+    }
+  }
+
+  return [...dedupedByBasename.values()];
+}
+
+async function loadManifest(origin: string): Promise<DataManifest> {
+  const key = `manifest:${origin}`;
+  const cached = getCached<DataManifest>(key);
+  if (cached) return cached;
+
+  try {
+    const manifestUrl = new URL("/data/manifest.json", origin).toString();
+    const response = await fetch(manifestUrl, { cache: "force-cache" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const raw = (await response.json()) as Partial<DataManifest>;
+    const manifest: DataManifest = {
+      bina: dedupeManifestPaths(Array.isArray(raw.bina) ? raw.bina : FALLBACK_MANIFEST.bina),
+      markets: dedupeManifestPaths(Array.isArray(raw.markets) ? raw.markets : FALLBACK_MANIFEST.markets),
+      turbo: dedupeManifestPaths(Array.isArray(raw.turbo) ? raw.turbo : FALLBACK_MANIFEST.turbo),
+    };
+
+    setCached(key, manifest);
+    return manifest;
   } catch (err) {
-    console.error(`Failed to list parquet files in ${dir}:`, err);
-    return [];
+    console.warn("Falling back to embedded data manifest:", err);
+    setCached(key, FALLBACK_MANIFEST);
+    return FALLBACK_MANIFEST;
   }
 }
 
-export async function loadBinaRows(): Promise<BinaRow[]> {
-  const key = "bina";
+export async function loadBinaRows(origin: string): Promise<BinaRow[]> {
+  const key = `bina:${origin}`;
   const cached = getCached<BinaRow[]>(key);
   if (cached) return cached;
 
-  const baseDir = await resolveDataDir("bina_az", "data");
-  const files = await listParquetFiles(baseDir);
+  const manifest = await loadManifest(origin);
+  const files = dedupeManifestPaths(manifest.bina);
   const rows: BinaRow[] = [];
 
-  for (const filePath of files) {
-    const fileName = path.basename(filePath);
+  for (const relativePath of files) {
+    const fileName = basename(relativePath);
     const period = extractPeriodFromName(fileName);
-    const operationType: "Sale" | "Rent" = filePath.toLowerCase().includes("rent")
+    const operationType: "Sale" | "Rent" = relativePath.toLowerCase().includes("rent")
       ? "Rent"
       : "Sale";
 
-    const rawRows = await readParquetRows(filePath);
+    const rawRows = await readParquetRowsFromUrl(toDataUrl(origin, relativePath));
 
     for (const row of rawRows) {
       if (toStr(row.city_name) !== "Bakı") continue;
@@ -180,21 +245,21 @@ export async function loadBinaRows(): Promise<BinaRow[]> {
   return rows;
 }
 
-export async function loadMarketsRows(): Promise<MarketsRow[]> {
-  const key = "markets";
+export async function loadMarketsRows(origin: string): Promise<MarketsRow[]> {
+  const key = `markets:${origin}`;
   const cached = getCached<MarketsRow[]>(key);
   if (cached) return cached;
 
-  const baseDir = await resolveDataDir("markets", "data");
-  const files = await listParquetFiles(baseDir);
+  const manifest = await loadManifest(origin);
+  const files = dedupeManifestPaths(manifest.markets);
   const rows: MarketsRow[] = [];
 
-  for (const fileName of files) {
-    const filePath = path.join(baseDir, path.basename(fileName));
-    const period = extractPeriodFromName(path.basename(fileName));
-    const srcFromFile = normalizeSource(path.basename(fileName).split("_")[0]);
+  for (const relativePath of files) {
+    const fileName = basename(relativePath);
+    const period = extractPeriodFromName(fileName);
+    const srcFromFile = normalizeSource(fileName.split("_")[0]);
 
-    const rawRows = await readParquetRows(filePath);
+    const rawRows = await readParquetRowsFromUrl(toDataUrl(origin, relativePath));
 
     for (const row of rawRows) {
       const price = toNumber(row.price);
@@ -215,20 +280,20 @@ export async function loadMarketsRows(): Promise<MarketsRow[]> {
   return rows;
 }
 
-export async function loadTurboRows(): Promise<TurboRow[]> {
-  const key = "turbo";
+export async function loadTurboRows(origin: string): Promise<TurboRow[]> {
+  const key = `turbo:${origin}`;
   const cached = getCached<TurboRow[]>(key);
   if (cached) return cached;
 
-  const baseDir = await resolveDataDir("turbo_az", "data");
-  const files = await listParquetFiles(baseDir);
+  const manifest = await loadManifest(origin);
+  const files = dedupeManifestPaths(manifest.turbo);
   const rows: TurboRow[] = [];
 
-  for (const filePath of files) {
-    const fileName = path.basename(filePath);
+  for (const relativePath of files) {
+    const fileName = basename(relativePath);
     const period = extractPeriodFromName(fileName);
 
-    const rawRows = await readParquetRows(filePath);
+    const rawRows = await readParquetRowsFromUrl(toDataUrl(origin, relativePath));
 
     for (const row of rawRows) {
       const price = toNumber(row.price);
