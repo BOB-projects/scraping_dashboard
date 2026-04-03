@@ -21,57 +21,69 @@ function setCacheHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
-export async function GET(request: NextRequest) {
-  const rows = await loadTurboRows(request.nextUrl.origin);
-  const cursor = parsePositiveInt(request.nextUrl.searchParams.get("cursor"), 0);
-  const pageSize = clampPageSize(
-    parsePositiveInt(request.nextUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE),
+function errorResponse(error: unknown): NextResponse {
+  console.error("Failed to load Turbo data", error);
+  return NextResponse.json(
+    { error: "Failed to load Turbo data" },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
   );
-  const includeMeta = request.nextUrl.searchParams.get("includeMeta") !== "0";
+}
 
-  const safeCursor = Math.min(cursor, rows.length);
-  const sliceEnd = Math.min(rows.length, safeCursor + pageSize);
-  const pageRows = rows.slice(safeCursor, sliceEnd);
-  const nextCursor = sliceEnd < rows.length ? sliceEnd : null;
+export async function GET(request: NextRequest) {
+  try {
+    const rows = await loadTurboRows(request.nextUrl.origin);
+    const cursor = parsePositiveInt(request.nextUrl.searchParams.get("cursor"), 0);
+    const pageSize = clampPageSize(
+      parsePositiveInt(request.nextUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE),
+    );
+    const includeMeta = request.nextUrl.searchParams.get("includeMeta") !== "0";
 
-  const payload: {
-    project: "Turbo.az";
-    rows: typeof pageRows;
-    page: {
-      cursor: number;
-      nextCursor: number | null;
-      hasMore: boolean;
-      total: number;
-      pageSize: number;
-    };
-    meta?: {
-      periods: string[];
-      brands: string[];
-      fuelTypes: string[];
-      bodyTypes: string[];
-      transmissions: string[];
-    };
-  } = {
-    project: "Turbo.az",
-    rows: pageRows,
-    page: {
-      cursor: safeCursor,
-      nextCursor,
-      hasMore: nextCursor !== null,
-      total: rows.length,
-      pageSize,
-    },
-  };
+    const safeCursor = Math.min(cursor, rows.length);
+    const sliceEnd = Math.min(rows.length, safeCursor + pageSize);
+    const pageRows = rows.slice(safeCursor, sliceEnd);
+    const nextCursor = sliceEnd < rows.length ? sliceEnd : null;
 
-  if (includeMeta) {
-    payload.meta = {
-      periods: sortedPeriods(rows.map((r) => r.period)),
-      brands: [...new Set(rows.map((r) => r.brand))].sort(),
-      fuelTypes: [...new Set(rows.map((r) => r.fuelType))].sort(),
-      bodyTypes: [...new Set(rows.map((r) => r.bodyType))].sort(),
-      transmissions: [...new Set(rows.map((r) => r.transmission))].sort(),
+    const payload: {
+      project: "Turbo.az";
+      rows: typeof pageRows;
+      page: {
+        cursor: number;
+        nextCursor: number | null;
+        hasMore: boolean;
+        total: number;
+        pageSize: number;
+      };
+      meta?: {
+        periods: string[];
+        brands: string[];
+        fuelTypes: string[];
+        bodyTypes: string[];
+        transmissions: string[];
+      };
+    } = {
+      project: "Turbo.az",
+      rows: pageRows,
+      page: {
+        cursor: safeCursor,
+        nextCursor,
+        hasMore: nextCursor !== null,
+        total: rows.length,
+        pageSize,
+      },
     };
+
+    if (includeMeta) {
+      payload.meta = {
+        periods: sortedPeriods(rows.map((r) => r.period)),
+        brands: [...new Set(rows.map((r) => r.brand))].sort(),
+        fuelTypes: [...new Set(rows.map((r) => r.fuelType))].sort(),
+        bodyTypes: [...new Set(rows.map((r) => r.bodyType))].sort(),
+        transmissions: [...new Set(rows.map((r) => r.transmission))].sort(),
+      };
+    }
+
+    return setCacheHeaders(NextResponse.json(payload));
+  } catch (error) {
+    return errorResponse(error);
   }
-
-  return setCacheHeaders(NextResponse.json(payload));
 }

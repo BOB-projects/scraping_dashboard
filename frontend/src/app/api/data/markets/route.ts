@@ -21,55 +21,67 @@ function setCacheHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
-export async function GET(request: NextRequest) {
-  const rows = await loadMarketsRows(request.nextUrl.origin);
-  const cursor = parsePositiveInt(request.nextUrl.searchParams.get("cursor"), 0);
-  const pageSize = clampPageSize(
-    parsePositiveInt(request.nextUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE),
+function errorResponse(error: unknown): NextResponse {
+  console.error("Failed to load Markets data", error);
+  return NextResponse.json(
+    { error: "Failed to load Markets data" },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
   );
-  const includeMeta = request.nextUrl.searchParams.get("includeMeta") !== "0";
+}
 
-  const safeCursor = Math.min(cursor, rows.length);
-  const sliceEnd = Math.min(rows.length, safeCursor + pageSize);
-  const pageRows = rows.slice(safeCursor, sliceEnd);
-  const nextCursor = sliceEnd < rows.length ? sliceEnd : null;
+export async function GET(request: NextRequest) {
+  try {
+    const rows = await loadMarketsRows(request.nextUrl.origin);
+    const cursor = parsePositiveInt(request.nextUrl.searchParams.get("cursor"), 0);
+    const pageSize = clampPageSize(
+      parsePositiveInt(request.nextUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE),
+    );
+    const includeMeta = request.nextUrl.searchParams.get("includeMeta") !== "0";
 
-  const payload: {
-    project: "Markets";
-    rows: typeof pageRows;
-    page: {
-      cursor: number;
-      nextCursor: number | null;
-      hasMore: boolean;
-      total: number;
-      pageSize: number;
-    };
-    meta?: {
-      periods: string[];
-      sources: string[];
-      categories: string[];
-      brands: string[];
-    };
-  } = {
-    project: "Markets",
-    rows: pageRows,
-    page: {
-      cursor: safeCursor,
-      nextCursor,
-      hasMore: nextCursor !== null,
-      total: rows.length,
-      pageSize,
-    },
-  };
+    const safeCursor = Math.min(cursor, rows.length);
+    const sliceEnd = Math.min(rows.length, safeCursor + pageSize);
+    const pageRows = rows.slice(safeCursor, sliceEnd);
+    const nextCursor = sliceEnd < rows.length ? sliceEnd : null;
 
-  if (includeMeta) {
-    payload.meta = {
-      periods: sortedPeriods(rows.map((r) => r.period)),
-      sources: [...new Set(rows.map((r) => r.source))].sort(),
-      categories: [...new Set(rows.map((r) => r.category))].sort(),
-      brands: [...new Set(rows.map((r) => r.brand))].sort(),
+    const payload: {
+      project: "Markets";
+      rows: typeof pageRows;
+      page: {
+        cursor: number;
+        nextCursor: number | null;
+        hasMore: boolean;
+        total: number;
+        pageSize: number;
+      };
+      meta?: {
+        periods: string[];
+        sources: string[];
+        categories: string[];
+        brands: string[];
+      };
+    } = {
+      project: "Markets",
+      rows: pageRows,
+      page: {
+        cursor: safeCursor,
+        nextCursor,
+        hasMore: nextCursor !== null,
+        total: rows.length,
+        pageSize,
+      },
     };
+
+    if (includeMeta) {
+      payload.meta = {
+        periods: sortedPeriods(rows.map((r) => r.period)),
+        sources: [...new Set(rows.map((r) => r.source))].sort(),
+        categories: [...new Set(rows.map((r) => r.category))].sort(),
+        brands: [...new Set(rows.map((r) => r.brand))].sort(),
+      };
+    }
+
+    return setCacheHeaders(NextResponse.json(payload));
+  } catch (error) {
+    return errorResponse(error);
   }
-
-  return setCacheHeaders(NextResponse.json(payload));
 }

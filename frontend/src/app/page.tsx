@@ -1113,7 +1113,7 @@ export default function Home() {
   useEffect(() => {
     let isActive = true;
     const controller = new AbortController();
-    const pageSize = 10_000;
+    const pageSize = 50_000;
 
     const run = async () => {
       setLoading(true);
@@ -1132,7 +1132,7 @@ export default function Home() {
           });
           const response = await fetch(`${route}?${query.toString()}`, {
             signal: controller.signal,
-            cache: "force-cache",
+            cache: "no-store",
           });
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
