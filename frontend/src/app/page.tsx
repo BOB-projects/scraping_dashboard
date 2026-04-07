@@ -6,6 +6,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -141,6 +142,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     activeFilters: "active filters",
     filters: "Filters",
     totalLoaded: "total loaded",
+    splitBySelection: "Split lines",
   },
   az: {
     marketAnalytics: "Bazar Analitikası",
@@ -207,6 +209,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     activeFilters: "aktiv filtrlər",
     filters: "Filtrlər",
     totalLoaded: "yükləndi",
+    splitBySelection: "Xətləri ayır",
   },
 };
 
@@ -649,15 +652,20 @@ function Chart({
 function Section({
   title,
   children,
+  extra,
 }: {
   title: string;
   children: React.ReactNode;
+  extra?: React.ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/40 p-6 shadow-sm dark:border-zinc-800/80 dark:from-zinc-900 dark:to-zinc-900/40">
-      <p className="mb-5 text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-        {title}
-      </p>
+      <div className="mb-5 flex items-center justify-between">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+          {title}
+        </p>
+        {extra && <div>{extra}</div>}
+      </div>
       {children}
     </div>
   );
@@ -847,6 +855,7 @@ function EmptyState({ title, hint }: { title: string; hint: string }) {
 }
 
 export default function Home() {
+  const [splitTrend, setSplitTrend] = useState(false);
   const [project, setProject] = useState<ProjectKey>("Bina.az");
   const [lang, setLang] = useState<Lang>("en");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -1408,12 +1417,20 @@ export default function Home() {
 
   const trend = useMemo(() => {
     const byPeriod = new Map<string, number[]>();
+    const byPeriodAndGroup = new Map<string, Map<string, number[]>>();
 
     if (project === "Bina.az") {
       for (const r of filteredRows as BinaRow[]) {
         const metric = operationType === "Rent" ? r.price : r.pricePerM2;
         if (!byPeriod.has(r.period)) byPeriod.set(r.period, []);
         byPeriod.get(r.period)?.push(metric);
+        
+        if (splitTrend && regionMode === "custom") {
+          const grp = r.region;
+          if (!byPeriodAndGroup.has(r.period)) byPeriodAndGroup.set(r.period, new Map());
+          if (!byPeriodAndGroup.get(r.period)!.has(grp)) byPeriodAndGroup.get(r.period)!.set(grp, []);
+          byPeriodAndGroup.get(r.period)!.get(grp)!.push(metric);
+        }
       }
     } else if (project === "Markets") {
       for (const r of filteredRows as MarketsRow[]) {
@@ -1424,16 +1441,32 @@ export default function Home() {
       for (const r of filteredRows as TurboRow[]) {
         if (!byPeriod.has(r.period)) byPeriod.set(r.period, []);
         byPeriod.get(r.period)?.push(r.price);
+        
+        if (splitTrend && turboBrandMode === "custom") {
+          const grp = r.brand;
+          if (!byPeriodAndGroup.has(r.period)) byPeriodAndGroup.set(r.period, new Map());
+          if (!byPeriodAndGroup.get(r.period)!.has(grp)) byPeriodAndGroup.get(r.period)!.set(grp, []);
+          byPeriodAndGroup.get(r.period)!.get(grp)!.push(r.price);
+        }
       }
     }
 
     const points = [...byPeriod.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([period, values]) => ({
-        period,
-        dateLabel: periodToLabel(period, dateLocale),
-        medianPrice: median(values),
-      }));
+      .map(([period, values]) => {
+        const base: Record<string, any> = {
+          period,
+          dateLabel: periodToLabel(period, dateLocale),
+          medianPrice: median(values),
+        };
+        const grpMap = byPeriodAndGroup.get(period);
+        if (grpMap) {
+          for (const [grp, grpVals] of grpMap.entries()) {
+            base[grp] = median(grpVals);
+          }
+        }
+        return base as TrendPoint;
+      });
 
     return withPercentChange(points, {
       noPreviousPeriod: t("noPreviousPeriod"),
@@ -1441,7 +1474,7 @@ export default function Home() {
       rise: t("rise"),
       noChange: t("noChange"),
     });
-  }, [filteredRows, project, operationType, dateLocale, lang]);
+  }, [filteredRows, project, operationType, dateLocale, splitTrend, regionMode, turboBrandMode, t]);
 
   const listingCountTrend = useMemo(() => {
     const byPeriod = new Map<string, number>();
@@ -1459,6 +1492,8 @@ export default function Home() {
       }));
   }, [filteredRows, dateLocale]);
 
+  const canSplitTrend = (project === "Bina.az" && regionMode === "custom" && regions.length > 0) || (project === "Turbo.az" && turboBrandMode === "custom" && brands.length > 0);
+  const trendGroups = canSplitTrend ? (project === "Bina.az" ? regions : brands) : [];
   const kpis = useMemo(() => {
     const sorted = [...trend].sort((a, b) => b.period.localeCompare(a.period));
     const latest = sorted[0];
@@ -1493,16 +1528,27 @@ export default function Home() {
       : t("medianPrice");
 
   const priceTrendDomain = useMemo(
-    () =>
-      buildChartDomain(
-        trend.map((point) => point.medianPrice),
+    () => {
+      const allValues = trend.flatMap((point) => {
+        const vals = [point.medianPrice];
+        if (splitTrend) {
+          for (const group of trendGroups) {
+            const v = (point as any)[group];
+            if (typeof v === "number") vals.push(v);
+          }
+        }
+        return vals;
+      });
+      return buildChartDomain(
+        allValues,
         {
           paddingRatio: 0.14,
           minPadding: project === "Bina.az" && operationType === "Sale" ? 10 : 100,
           clampMin: 0,
         },
-      ),
-    [trend, project, operationType],
+      );
+    },
+    [trend, project, operationType, splitTrend, trendGroups],
   );
 
   const listingCountDomain = useMemo(
@@ -1993,7 +2039,22 @@ export default function Home() {
             <EmptyState title={t("noDataTitle")} hint={t("noDataHint")} />
           ) : (
             <>
-              <Section title={t("priceTrend")}>
+              <Section 
+                title={t("priceTrend")}
+                extra={
+                  canSplitTrend && (
+                    <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={splitTrend}
+                        onChange={(e) => setSplitTrend(e.target.checked)}
+                        className="accent-blue-500 rounded border-gray-300"
+                      />
+                      {t("splitBySelection") || "Split lines"}
+                    </label>
+                  )
+                }
+              >
                 <Chart height={300}>
                   <LineChart
                     data={trend}
@@ -2023,45 +2084,86 @@ export default function Home() {
                     />
                     <Tooltip
                       {...shared}
-                      formatter={(v: number | undefined) => [
+                      formatter={(v: number | undefined, name: string | undefined) => [
                         (v ?? 0).toLocaleString("en-US", {
                           maximumFractionDigits: 0,
                         }),
-                        medianLabel,
+                        name === "medianPrice" ? medianLabel : (name ?? ""),
                       ]}
                     />
-                    <Line
-                      type="monotone"
-                      dataKey="medianPrice"
-                      stroke="#60a5fa"
-                      strokeWidth={2.5}
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      label={(props: any) => {
-                        if (
-                          typeof props.x !== "number" ||
-                          typeof props.y !== "number" ||
-                          typeof props.value !== "number"
-                        ) {
-                          return null;
-                        }
-                        const isEven = (props.index ?? 0) % 2 === 0;
-                        const offsetY = isEven ? -12 : 18;
-                        return (
-                          <text
-                            x={props.x}
-                            y={props.y + offsetY}
-                            fill={chartColors.tick}
-                            fontSize={9}
-                            textAnchor="middle"
-                            dominantBaseline={isEven ? "middle" : "middle"}
-                          >
-                            {fmtNum(props.value)}
-                          </text>
-                        );
-                      }}
-                      dot={{ r: 4, fill: "#60a5fa", strokeWidth: 0 }}
-                      activeDot={{ r: 6 }}
-                    />
+                    {splitTrend && (
+                      <Legend
+                        wrapperStyle={{ fontSize: "11px", color: chartColors.tick, paddingTop: "10px" }}
+                        iconType="circle"
+                      />
+                    )}
+                    {(!splitTrend || trendGroups.length === 0) && (
+                      <Line
+                        type="monotone"
+                        dataKey="medianPrice"
+                        name="medianPrice"
+                        stroke="#60a5fa"
+                        strokeWidth={2.5}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        label={(props: any) => {
+                          if (
+                            typeof props.x !== "number" ||
+                            typeof props.y !== "number" ||
+                            typeof props.value !== "number"
+                          ) {
+                            return null;
+                          }
+                          const isEven = (props.index ?? 0) % 2 === 0;
+                          const offsetY = isEven ? -12 : 18;
+                          return (
+                            <text
+                              x={props.x}
+                              y={props.y + offsetY}
+                              fill={chartColors.tick}
+                              fontSize={9}
+                              textAnchor="middle"
+                              dominantBaseline={isEven ? "middle" : "middle"}
+                            >
+                              {fmtNum(props.value)}
+                            </text>
+                          );
+                        }}
+                        dot={{ r: 4, fill: "#60a5fa", strokeWidth: 0 }}
+                        activeDot={{ r: 6 }}
+                      />
+                    )}
+                    {splitTrend && trendGroups.length > 0 && (
+                      <Line
+                        type="monotone"
+                        dataKey="medianPrice"
+                        name={t("aggregatedMedian") || "Median"}
+                        stroke="#94a3b8"
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                    )}
+                    {splitTrend && trendGroups.map((group, idx) => {
+                      const colors = [
+                        "#ef4444", "#f97316", "#f59e0b", "#84cc16", "#22c55e",
+                        "#10b981", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1",
+                        "#8b5cf6", "#d946ef", "#ec4899", "#f43f5e"
+                      ];
+                      const color = colors[idx % colors.length];
+                      return (
+                        <Line
+                          key={group}
+                          type="monotone"
+                          dataKey={group}
+                          name={group}
+                          stroke={color}
+                          strokeWidth={2}
+                          dot={{ r: 3, fill: color, strokeWidth: 0 }}
+                          activeDot={{ r: 5 }}
+                        />
+                      );
+                    })}
                   </LineChart>
                 </Chart>
               </Section>
