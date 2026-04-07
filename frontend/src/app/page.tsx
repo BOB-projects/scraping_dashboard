@@ -111,6 +111,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     prev: "Prev",
     latestPeriodChange: "Latest period change",
     priceTrend: "Price trend — aggregated median",
+    listingsTrend: "Listings trend — monthly count",
     percentChangeTitle: "Percent change (+ rise / − drop)",
     change: "Change",
     noPreviousPeriod: "No previous period",
@@ -176,6 +177,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     prev: "Əvvəlki",
     latestPeriodChange: "Son dövr dəyişimi",
     priceTrend: "Qiymət trendi — aqreqat median",
+    listingsTrend: "Elan trendi — aylıq say",
     percentChangeTitle: "Faiz dəyişimi (+ artım / − azalma)",
     change: "Dəyişim",
     noPreviousPeriod: "Əvvəlki dövr yoxdur",
@@ -1441,6 +1443,22 @@ export default function Home() {
     });
   }, [filteredRows, project, operationType, dateLocale, lang]);
 
+  const listingCountTrend = useMemo(() => {
+    const byPeriod = new Map<string, number>();
+
+    for (const row of filteredRows as AnyRow[]) {
+      byPeriod.set(row.period, (byPeriod.get(row.period) ?? 0) + 1);
+    }
+
+    return [...byPeriod.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([period, count]) => ({
+        period,
+        dateLabel: periodToLabel(period, dateLocale),
+        count,
+      }));
+  }, [filteredRows, dateLocale]);
+
   const kpis = useMemo(() => {
     const sorted = [...trend].sort((a, b) => b.period.localeCompare(a.period));
     const latest = sorted[0];
@@ -1485,6 +1503,19 @@ export default function Home() {
         },
       ),
     [trend, project, operationType],
+  );
+
+  const listingCountDomain = useMemo(
+    () =>
+      buildChartDomain(
+        listingCountTrend.map((point) => point.count),
+        {
+          paddingRatio: 0.15,
+          minPadding: 1,
+          clampMin: 0,
+        },
+      ),
+    [listingCountTrend],
   );
 
   const percentTrendDomain = useMemo(
@@ -2029,6 +2060,53 @@ export default function Home() {
                         );
                       }}
                       dot={{ r: 4, fill: "#60a5fa", strokeWidth: 0 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </Chart>
+              </Section>
+
+              <Section title={t("listingsTrend")}>
+                <Chart height={260}>
+                  <LineChart
+                    data={listingCountTrend}
+                    margin={{ top: 20, right: 24, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      stroke={chartColors.grid}
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="dateLabel"
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      domain={listingCountDomain}
+                      tickCount={6}
+                      tickFormatter={(v: number) => fmtNum(v)}
+                      width={70}
+                    />
+                    <Tooltip
+                      {...shared}
+                      formatter={(v: number | undefined) => [
+                        (v ?? 0).toLocaleString("en-US"),
+                        t("countLabel"),
+                      ]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke="#22c55e"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: "#22c55e", strokeWidth: 0 }}
                       activeDot={{ r: 6 }}
                     />
                   </LineChart>
