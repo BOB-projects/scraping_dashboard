@@ -106,6 +106,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     mileageRange: "Mileage range (km)",
     dashboard: "Dashboard",
     aggregatedMedian: "Aggregated median from selected filters",
+    aggregatedCount: "Total count from selected filters",
     filteredListings: "Filtered listings",
     medianPriceM2: "Median Price / m²",
     medianPrice: "Median Price (₼)",
@@ -113,6 +114,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     latestPeriodChange: "Latest period change",
     priceTrend: "Price trend — aggregated median",
     listingsTrend: "Listings trend — monthly count",
+    listingCountChangeTitle: "Listing count change (% rise / drop)",
     percentChangeTitle: "Percent change (+ rise / − drop)",
     change: "Change",
     noPreviousPeriod: "No previous period",
@@ -173,6 +175,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     mileageRange: "Yürüş aralığı (km)",
     dashboard: "Panel",
     aggregatedMedian: "Seçilmiş filtrlər üzrə aqreqat median",
+    aggregatedCount: "Seçilmiş filtrlər üzrə ümumi say",
     filteredListings: "Filtrlənmiş elanlar",
     medianPriceM2: "Median Qiymət / m²",
     medianPrice: "Median Qiymət (₼)",
@@ -180,6 +183,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     latestPeriodChange: "Son dövr dəyişimi",
     priceTrend: "Qiymət trendi — aqreqat median",
     listingsTrend: "Elan trendi — aylıq say",
+    listingCountChangeTitle: "Elan sayı dəyişimi (% artım / azalma)",
     percentChangeTitle: "Faiz dəyişimi (+ artım / − azalma)",
     change: "Dəyişim",
     noPreviousPeriod: "Əvvəlki dövr yoxdur",
@@ -1476,24 +1480,65 @@ export default function Home() {
     });
   }, [filteredRows, project, operationType, dateLocale, splitTrend, regionMode, turboBrandMode, t]);
 
+  const canSplitTrend = (project === "Bina.az" && regionMode === "custom" && regions.length > 0) || (project === "Turbo.az" && turboBrandMode === "custom" && brands.length > 0);
+  const trendGroups = canSplitTrend ? (project === "Bina.az" ? regions : brands) : [];
+
   const listingCountTrend = useMemo(() => {
     const byPeriod = new Map<string, number>();
+    const byPeriodAndGroup = new Map<string, Map<string, number>>();
 
     for (const row of filteredRows as AnyRow[]) {
       byPeriod.set(row.period, (byPeriod.get(row.period) ?? 0) + 1);
+
+      // Handle split lines by group (region or brand)
+      if (splitTrend && canSplitTrend) {
+        const groupValue = 
+          project === "Bina.az" ? (row as BinaRow).region :
+          project === "Turbo.az" ? (row as TurboRow).brand :
+          "";
+        
+        if (groupValue) {
+          if (!byPeriodAndGroup.has(row.period)) {
+            byPeriodAndGroup.set(row.period, new Map());
+          }
+          const grpMap = byPeriodAndGroup.get(row.period)!;
+          grpMap.set(groupValue, (grpMap.get(groupValue) ?? 0) + 1);
+        }
+      }
     }
 
-    return [...byPeriod.entries()]
+    const points = [...byPeriod.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([period, count]) => ({
-        period,
-        dateLabel: periodToLabel(period, dateLocale),
-        count,
-      }));
-  }, [filteredRows, dateLocale]);
+      .map(([period, count]) => {
+        const base: Record<string, any> = {
+          period,
+          dateLabel: periodToLabel(period, dateLocale),
+          count,
+        };
+        const grpMap = byPeriodAndGroup.get(period);
+        if (grpMap) {
+          for (const [grp, grpCount] of grpMap.entries()) {
+            base[grp] = grpCount;
+          }
+        }
+        return base;
+      });
 
-  const canSplitTrend = (project === "Bina.az" && regionMode === "custom" && regions.length > 0) || (project === "Turbo.az" && turboBrandMode === "custom" && brands.length > 0);
-  const trendGroups = canSplitTrend ? (project === "Bina.az" ? regions : brands) : [];
+    // Add percent change for listing count
+    if (points.length === 0) return [];
+    const baseCount = points[0].count;
+
+    return points.map((point, idx) => {
+      if (idx === 0 || !baseCount) {
+        return { ...point, pctChange: 0, pctLabel: t("noPreviousPeriod") };
+      }
+      const value = ((point.count - baseCount) / baseCount) * 100;
+      const dir = value < 0 ? t("drop") : value > 0 ? t("rise") : t("noChange");
+      const label = `${Math.abs(value).toFixed(2)}% ${dir}`;
+      return { ...point, pctChange: value, pctLabel: label };
+    });
+  }, [filteredRows, dateLocale, splitTrend, canSplitTrend, project, t]);
+
   const kpis = useMemo(() => {
     const sorted = [...trend].sort((a, b) => b.period.localeCompare(a.period));
     const latest = sorted[0];
@@ -1554,7 +1599,7 @@ export default function Home() {
   const listingCountDomain = useMemo(
     () =>
       buildChartDomain(
-        listingCountTrend.map((point) => point.count),
+        listingCountTrend.map((point) => (point as any).count),
         {
           paddingRatio: 0.15,
           minPadding: 1,
@@ -1575,6 +1620,19 @@ export default function Home() {
         },
       ),
     [trend],
+  );
+
+  const listingCountPctChangeDomain = useMemo(
+    () =>
+      buildChartDomain(
+        listingCountTrend.map((point) => point.pctChange),
+        {
+          paddingRatio: 0.18,
+          minPadding: 0.5,
+          includeValues: [0],
+        },
+      ),
+    [listingCountTrend],
   );
 
   // Breakdown chart: group filtered rows by the selected dimension
@@ -2168,53 +2226,6 @@ export default function Home() {
                 </Chart>
               </Section>
 
-              <Section title={t("listingsTrend")}>
-                <Chart height={260}>
-                  <LineChart
-                    data={listingCountTrend}
-                    margin={{ top: 20, right: 24, left: 0, bottom: 0 }}
-                  >
-                    <CartesianGrid
-                      stroke={chartColors.grid}
-                      strokeDasharray="3 3"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="dateLabel"
-                      stroke={chartColors.axis}
-                      tick={{ fill: chartColors.tick, fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      stroke={chartColors.axis}
-                      tick={{ fill: chartColors.tick, fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      domain={listingCountDomain}
-                      tickCount={6}
-                      tickFormatter={(v: number) => fmtNum(v)}
-                      width={70}
-                    />
-                    <Tooltip
-                      {...shared}
-                      formatter={(v: number | undefined) => [
-                        (v ?? 0).toLocaleString("en-US"),
-                        t("countLabel"),
-                      ]}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="count"
-                      stroke="#22c55e"
-                      strokeWidth={2.5}
-                      dot={{ r: 4, fill: "#22c55e", strokeWidth: 0 }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </LineChart>
-                </Chart>
-              </Section>
-
               <Section title={t("percentChangeTitle")}>
                 <Chart height={240}>
                   <LineChart
@@ -2254,6 +2265,226 @@ export default function Home() {
                         _v: unknown,
                         _n: unknown,
                         entry: { payload?: TrendPoint },
+                      ) => [entry?.payload?.pctLabel ?? "", t("change")]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="pctChange"
+                      stroke="#f97316"
+                      strokeWidth={2.5}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      label={(
+                        props: any,
+                      ) => {
+                        if (
+                          typeof props.x !== "number" ||
+                          typeof props.y !== "number" ||
+                          typeof props.value !== "number"
+                        ) {
+                          return null;
+                        }
+                        const isEven = (props.index ?? 0) % 2 === 0;
+                        const offsetY = isEven ? -12 : 16;
+                        return (
+                          <text
+                            x={props.x}
+                            y={props.y + offsetY}
+                            fill={chartColors.tick}
+                            fontSize={9}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                          >
+                            {fmtSignedPercent(props.value)}
+                          </text>
+                        );
+                      }}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      dot={(p: any) => (
+                        <circle
+                          key={`dot-${p.cx}`}
+                          cx={p.cx}
+                          cy={p.cy}
+                          r={4}
+                          fill={
+                            (p.payload?.pctChange ?? 0) < 0
+                              ? "#f43f5e"
+                              : "#34d399"
+                          }
+                          stroke="none"
+                        />
+                      )}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </Chart>
+              </Section>
+
+              <Section
+                title={t("listingsTrend")}
+                extra={
+                  canSplitTrend && (
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={splitTrend}
+                        onChange={(e) => setSplitTrend(e.target.checked)}
+                        className="accent-blue-500 rounded border-gray-300"
+                      />
+                      {t("splitBySelection") || "Split lines"}
+                    </label>
+                  )
+                }
+              >
+                <Chart height={280}>
+                  <LineChart
+                    data={listingCountTrend}
+                    margin={{ top: 32, right: 24, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      stroke={chartColors.grid}
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="dateLabel"
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      domain={listingCountDomain}
+                      tickCount={6}
+                      tickFormatter={(v: number) => fmtNum(v)}
+                      width={70}
+                    />
+                    <Tooltip
+                      {...shared}
+                      formatter={(v: number | undefined, name: string | undefined) => [
+                        (v ?? 0).toLocaleString("en-US"),
+                        name === "count" ? t("countLabel") : (name ?? ""),
+                      ]}
+                    />
+                    {splitTrend && (
+                      <Legend
+                        wrapperStyle={{ fontSize: "11px", color: chartColors.tick, paddingTop: "10px" }}
+                        iconType="circle"
+                      />
+                    )}
+                    {(!splitTrend || trendGroups.length === 0) && (
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        name="count"
+                        stroke="#22c55e"
+                        strokeWidth={2.5}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        label={(props: any) => {
+                          if (
+                            typeof props.x !== "number" ||
+                            typeof props.y !== "number" ||
+                            typeof props.value !== "number"
+                          ) {
+                            return null;
+                          }
+                          const isEven = (props.index ?? 0) % 2 === 0;
+                          const offsetY = isEven ? -12 : 16;
+                          return (
+                            <text
+                              x={props.x}
+                              y={props.y + offsetY}
+                              fill={chartColors.tick}
+                              fontSize={9}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                            >
+                              {fmtNum(props.value)}
+                            </text>
+                          );
+                        }}
+                        dot={{ r: 4, fill: "#22c55e", strokeWidth: 0 }}
+                        activeDot={{ r: 6 }}
+                      />
+                    )}
+                    {splitTrend && trendGroups.length > 0 && (
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        name={t("aggregatedCount") || "Total Count"}
+                        stroke="#94a3b8"
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                    )}
+                    {splitTrend && trendGroups.map((group, idx) => {
+                      const colors = [
+                        "#ef4444", "#f97316", "#f59e0b", "#84cc16", "#22c55e",
+                        "#10b981", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1",
+                        "#8b5cf6", "#d946ef", "#ec4899", "#f43f5e"
+                      ];
+                      const color = colors[idx % colors.length];
+                      return (
+                        <Line
+                          key={group}
+                          type="monotone"
+                          dataKey={group}
+                          name={group}
+                          stroke={color}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      );
+                    })}
+                  </LineChart>
+                </Chart>
+              </Section>
+
+              <Section title={t("listingCountChangeTitle") || "Listing Count Change"}>
+                <Chart height={240}>
+                  <LineChart
+                    data={listingCountTrend}
+                    margin={{ top: 32, right: 32, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      stroke={chartColors.grid}
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="dateLabel"
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke={chartColors.axis}
+                      tick={{ fill: chartColors.tick, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      domain={listingCountPctChangeDomain}
+                      tickCount={6}
+                      tickFormatter={(v) => `${v.toFixed(1)}%`}
+                      width={55}
+                    />
+                    <ReferenceLine
+                      y={0}
+                      stroke={chartColors.grid}
+                      strokeDasharray="4 4"
+                    />
+                    <Tooltip
+                      {...shared}
+                      formatter={(
+                        _v: unknown,
+                        _n: unknown,
+                        entry: { payload?: any },
                       ) => [entry?.payload?.pctLabel ?? "", t("change")]}
                     />
                     <Line
