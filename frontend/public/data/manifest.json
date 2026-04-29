@@ -4,26 +4,32 @@
     "bina_az/data/bina_sale_202602.parquet",
     "bina_az/data/bina_sale_202603.parquet",
     "bina_az/data/bina_sale_202604.parquet",
+    "bina_az/data/bina_sale_202604-q2.parquet",
     "bina_az/data/rent/bina_rent_202601.parquet",
     "bina_az/data/rent/bina_rent_202602.parquet",
     "bina_az/data/rent/bina_rent_202603.parquet",
-    "bina_az/data/rent/bina_rent_202604.parquet"
+    "bina_az/data/rent/bina_rent_202604.parquet",
+    "bina_az/data/rent/bina_rent_202604-q2.parquet"
   ],
   "markets": [
     "markets/data/arazmarket_202602.parquet",
     "markets/data/arazmarket_202603.parquet",
     "markets/data/arazmarket_202604.parquet",
+    "markets/data/bazarstore_202604-q2.parquet",
     "markets/data/bazarstore_202602.parquet",
     "markets/data/bazarstore_202603.parquet",
     "markets/data/bazarstore_202604.parquet",
+    "markets/data/bazarstore_202604-q2.parquet",
     "markets/data/neptun_202602.parquet",
     "markets/data/neptun_202603.parquet",
-    "markets/data/neptun_202604.parquet"
+    "markets/data/neptun_202604.parquet",
+    "markets/data/neptun_202604-q2.parquet"
   ],
   "turbo": [
     "turbo_az/data/turbo_az_2026-01.parquet",
     "turbo_az/data/turbo_az_2026-02.parquet",
     "turbo_az/data/turbo_az_2026-03.parquet",
-    "turbo_az/data/turbo_az_2026-04.parquet"
+    "turbo_az/data/turbo_az_2026-04.parquet",
+    "turbo_az/data/turbo_az_2026-04-q2.parquet"
   ]
 }

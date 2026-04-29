@@ -363,6 +363,32 @@ function MonthChips({
   );
 }
 
+// Parse period labels into sortable keys (year, month, H2 flag)
+function periodKey(p: string) {
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const isH2 = /q2|h2|\(H2\)/i.test(p);
+  const yymm = p.match(/(\d{4})-?(\d{2})/);
+  if (yymm) {
+    const y = Number(yymm[1]);
+    const m = Number(yymm[2]);
+    return { y, m, isH2 };
+  }
+
+  const short = String(p).trim();
+  const idx = monthNames.findIndex((n) => short.startsWith(n));
+  const m = idx >= 0 ? idx + 1 : 999;
+  return { y: 0, m, isH2 };
+}
+
+function periodCompare(a: string, b: string) {
+  const A = periodKey(a);
+  const B = periodKey(b);
+  if (A.y !== B.y) return A.y - B.y;
+  if (A.m !== B.m) return A.m - B.m;
+  if (A.isH2 !== B.isH2) return (A.isH2 ? 1 : 0) - (B.isH2 ? 1 : 0);
+  return a.localeCompare(b);
+}
+
 function PillToggle({
   options,
   value,
@@ -1456,7 +1482,7 @@ export default function Home() {
     }
 
     const points = [...byPeriod.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => periodCompare(a, b))
       .map(([period, values]) => {
         const base: Record<string, any> = {
           period,
@@ -1508,7 +1534,7 @@ export default function Home() {
     }
 
     const points = [...byPeriod.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => periodCompare(a, b))
       .map(([period, count]) => {
         const base: Record<string, any> = {
           period,
@@ -1540,7 +1566,7 @@ export default function Home() {
   }, [filteredRows, dateLocale, splitTrend, canSplitTrend, project, t]);
 
   const kpis = useMemo(() => {
-    const sorted = [...trend].sort((a, b) => b.period.localeCompare(a.period));
+  const sorted = [...trend].sort((a, b) => periodCompare(b.period, a.period));
     const latest = sorted[0];
     const prevs = sorted.slice(1, 4); // Take up to 3 previous periods
 
@@ -2198,7 +2224,29 @@ export default function Home() {
                         stroke="#94a3b8"
                         strokeWidth={2}
                         strokeDasharray="4 4"
-                        dot={false}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        label={(props: any) => {
+                          if (
+                            typeof props.x !== "number" ||
+                            typeof props.y !== "number" ||
+                            typeof props.value !== "number"
+                          ) {
+                            return null;
+                          }
+                          return (
+                            <text
+                              x={props.x}
+                              y={props.y - 10}
+                              fill={chartColors.tick}
+                              fontSize={9}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                            >
+                              {fmtNum(props.value)}
+                            </text>
+                          );
+                        }}
+                        dot={{ r: 3, fill: "#94a3b8", strokeWidth: 0 }}
                         activeDot={{ r: 4 }}
                       />
                     )}
@@ -2217,6 +2265,29 @@ export default function Home() {
                           name={group}
                           stroke={color}
                           strokeWidth={2}
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          label={(props: any) => {
+                            if (
+                              typeof props.x !== "number" ||
+                              typeof props.y !== "number" ||
+                              typeof props.value !== "number"
+                            ) {
+                              return null;
+                            }
+                            const offsetY = -10 - (idx % 3) * 9;
+                            return (
+                              <text
+                                x={props.x}
+                                y={props.y + offsetY}
+                                fill={color}
+                                fontSize={9}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                              >
+                                {fmtNum(props.value)}
+                              </text>
+                            );
+                          }}
                           dot={{ r: 3, fill: color, strokeWidth: 0 }}
                           activeDot={{ r: 5 }}
                         />
@@ -2418,7 +2489,29 @@ export default function Home() {
                         stroke="#94a3b8"
                         strokeWidth={2}
                         strokeDasharray="4 4"
-                        dot={false}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        label={(props: any) => {
+                          if (
+                            typeof props.x !== "number" ||
+                            typeof props.y !== "number" ||
+                            typeof props.value !== "number"
+                          ) {
+                            return null;
+                          }
+                          return (
+                            <text
+                              x={props.x}
+                              y={props.y - 10}
+                              fill={chartColors.tick}
+                              fontSize={9}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                            >
+                              {fmtNum(props.value)}
+                            </text>
+                          );
+                        }}
+                        dot={{ r: 3, fill: "#94a3b8", strokeWidth: 0 }}
                         activeDot={{ r: 4 }}
                       />
                     )}
@@ -2437,7 +2530,30 @@ export default function Home() {
                           name={group}
                           stroke={color}
                           strokeWidth={2}
-                          dot={false}
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          label={(props: any) => {
+                            if (
+                              typeof props.x !== "number" ||
+                              typeof props.y !== "number" ||
+                              typeof props.value !== "number"
+                            ) {
+                              return null;
+                            }
+                            const offsetY = -10 - (idx % 3) * 9;
+                            return (
+                              <text
+                                x={props.x}
+                                y={props.y + offsetY}
+                                fill={color}
+                                fontSize={9}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                              >
+                                {fmtNum(props.value)}
+                              </text>
+                            );
+                          }}
+                          dot={{ r: 3, fill: color, strokeWidth: 0 }}
                           activeDot={{ r: 4 }}
                         />
                       );

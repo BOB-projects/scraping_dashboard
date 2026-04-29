@@ -50,10 +50,12 @@ const FALLBACK_MANIFEST: DataManifest = {
     "bina_az/data/bina_sale_202602.parquet",
     "bina_az/data/bina_sale_202603.parquet",
     "bina_az/data/bina_sale_202604.parquet",
+    "bina_az/data/bina_sale_202604-q2.parquet",
     "bina_az/data/rent/bina_rent_202601.parquet",
     "bina_az/data/rent/bina_rent_202602.parquet",
     "bina_az/data/rent/bina_rent_202603.parquet",
     "bina_az/data/rent/bina_rent_202604.parquet",
+    "bina_az/data/rent/bina_rent_202604-q2.parquet",
   ],
   markets: [
     "markets/data/arazmarket_202602.parquet",
@@ -71,6 +73,7 @@ const FALLBACK_MANIFEST: DataManifest = {
     "turbo_az/data/turbo_az_2026-02.parquet",
     "turbo_az/data/turbo_az_2026-03.parquet",
     "turbo_az/data/turbo_az_2026-04.parquet",
+    "turbo_az/data/turbo_az_2026-04-q2.parquet",
   ],
 };
 
@@ -152,13 +155,21 @@ async function fetchParquetBuffer(fileUrl: string): Promise<ArrayBuffer> {
 }
 
 function extractPeriodFromName(name: string): string {
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const isQ2 = name.includes("-q2");
   const yyyymm = name.match(/(\d{6})/);
   if (yyyymm) {
-    return `${yyyymm[1].slice(0, 4)}-${yyyymm[1].slice(4)}`;
+    const month = parseInt(yyyymm[1].slice(4), 10);
+    const monthName = monthNames[month - 1] || "Unknown";
+    const suffix = isQ2 ? ` (H2)` : "";
+    return `${monthName}${suffix}`;
   }
   const yyyyMm = name.match(/(\d{4}-\d{2})/);
   if (yyyyMm) {
-    return yyyyMm[1];
+    const month = parseInt(yyyyMm[1].split("-")[1], 10);
+    const monthName = monthNames[month - 1] || "Unknown";
+    const suffix = isQ2 ? ` (H2)` : "";
+    return `${monthName}${suffix}`;
   }
   return "Unknown";
 }
@@ -397,9 +408,32 @@ export async function loadTurboRows(origin: string): Promise<TurboRow[]> {
 }
 
 export function sortedPeriods(periods: string[]): string[] {
-  return [...new Set(periods)].sort((a, b) => {
-    const [ya, ma] = a.split("-").map(Number);
-    const [yb, mb] = b.split("-").map(Number);
-    return ya === yb ? ma - mb : ya - yb;
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  const unique = Array.from(new Set(periods));
+
+  function parseKey(p: string) {
+    const isH2 = /q2|h2|\(H2\)/i.test(p);
+    const yymm = p.match(/(\d{4})-?(\d{2})/);
+    if (yymm) {
+      const y = Number(yymm[1]);
+      const m = Number(yymm[2]);
+      return { y, m, isH2 };
+    }
+
+    const short = String(p).trim();
+    const monthMatch = monthNames.findIndex((n) => short.startsWith(n));
+    const m = monthMatch >= 0 ? monthMatch + 1 : 999;
+    const y = 0;
+    return { y, m, isH2 };
+  }
+
+  return unique.sort((a, b) => {
+    const ka = parseKey(a);
+    const kb = parseKey(b);
+    if (ka.y !== kb.y) return ka.y - kb.y;
+    if (ka.m !== kb.m) return ka.m - kb.m;
+    if (ka.isH2 !== kb.isH2) return (ka.isH2 ? 1 : 0) - (kb.isH2 ? 1 : 0);
+    return a.localeCompare(b);
   });
 }
