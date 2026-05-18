@@ -218,10 +218,12 @@ const I18N: Record<Lang, Record<string, string>> = {
 };
 
 function periodToLabel(period: string, locale: string): string {
-  const [y, m] = period.split("-").map(Number);
+  const suffix = period.match(/\s*\((H1|H2)\)\s*$/i)?.[0] ?? "";
+  const normalized = period.replace(/\s*\((H1|H2)\)\s*$/i, "");
+  const [y, m] = normalized.split("-").map(Number);
   if (!y || !m) return period;
   const d = new Date(y, m - 1, 1);
-  return d.toLocaleDateString(locale, { month: "short", year: "numeric" });
+  return `${d.toLocaleDateString(locale, { month: "short", year: "numeric" })}${suffix}`;
 }
 
 function median(values: number[]): number {
@@ -363,21 +365,21 @@ function MonthChips({
   );
 }
 
-// Parse period labels into sortable keys (year, month, H2 flag)
+// Parse period labels into sortable keys (year, month, H1/H2 flag)
 function periodKey(p: string) {
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const isH2 = /q2|h2|\(H2\)/i.test(p);
+  const part = /q1|h1|\(H1\)/i.test(p) ? 1 : /q2|h2|\(H2\)/i.test(p) ? 2 : 0;
   const yymm = p.match(/(\d{4})-?(\d{2})/);
   if (yymm) {
     const y = Number(yymm[1]);
     const m = Number(yymm[2]);
-    return { y, m, isH2 };
+    return { y, m, part };
   }
 
   const short = String(p).trim();
   const idx = monthNames.findIndex((n) => short.startsWith(n));
   const m = idx >= 0 ? idx + 1 : 999;
-  return { y: 0, m, isH2 };
+  return { y: 0, m, part };
 }
 
 function periodCompare(a: string, b: string) {
@@ -385,7 +387,7 @@ function periodCompare(a: string, b: string) {
   const B = periodKey(b);
   if (A.y !== B.y) return A.y - B.y;
   if (A.m !== B.m) return A.m - B.m;
-  if (A.isH2 !== B.isH2) return (A.isH2 ? 1 : 0) - (B.isH2 ? 1 : 0);
+  if (A.part !== B.part) return A.part - B.part;
   return a.localeCompare(b);
 }
 
@@ -758,6 +760,13 @@ function fmtNum(v: number): string {
   if (v >= 100_000)
     return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(v / 1_000)}K`;
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(v);
+}
+
+function fmtFixed(v: number, fractionDigits: number): string {
+  return v.toLocaleString("en-US", {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
 }
 
 function fmtSignedPercent(v: number): string {
@@ -1565,6 +1574,8 @@ export default function Home() {
     });
   }, [filteredRows, dateLocale, splitTrend, canSplitTrend, project, t]);
 
+  const priceFractionDigits = project === "Markets" ? 2 : 0;
+
   const kpis = useMemo(() => {
   const sorted = [...trend].sort((a, b) => periodCompare(b.period, a.period));
     const latest = sorted[0];
@@ -1577,9 +1588,7 @@ export default function Home() {
       latestLabel: latest?.dateLabel ?? "",
       history: prevs.map((p) => ({
         label: p.dateLabel,
-        value: p.medianPrice.toLocaleString("en-US", {
-          maximumFractionDigits: 0,
-        }),
+        value: fmtFixed(p.medianPrice, priceFractionDigits),
       })),
       historyPct: prevs.map((p) => ({
         label: p.dateLabel,
@@ -1591,7 +1600,7 @@ export default function Home() {
             : "neutral") as "green" | "red" | "neutral",
       })),
     };
-  }, [filteredRows, trend]);
+  }, [filteredRows, priceFractionDigits, trend]);
 
   const medianLabel =
     project === "Bina.az" && operationType === "Sale"
@@ -1693,7 +1702,10 @@ export default function Home() {
     return [...map.entries()]
       .map(([key, values]) => ({
         key,
-        medianPrice: Math.round(median(values)),
+        medianPrice:
+          project === "Markets"
+            ? Number(median(values).toFixed(2))
+            : Math.round(median(values)),
         count: values.length,
       }))
       .filter((d) => d.count >= 5)
@@ -2095,9 +2107,7 @@ export default function Home() {
             />
             <KpiCard
               label={medianLabel}
-              value={kpis.medianValue.toLocaleString("en-US", {
-                maximumFractionDigits: 0,
-              })}
+              value={fmtFixed(kpis.medianValue, priceFractionDigits)}
               sub={kpis.latestLabel}
               history={kpis.history}
             />
@@ -2163,15 +2173,15 @@ export default function Home() {
                       tickLine={false}
                       domain={priceTrendDomain}
                       tickCount={6}
-                      tickFormatter={(v: number) => fmtNum(v)}
+                      tickFormatter={(v: number) =>
+                        project === "Markets" ? fmtFixed(v, priceFractionDigits) : fmtNum(v)
+                      }
                       width={82}
                     />
                     <Tooltip
                       {...shared}
                       formatter={(v: number | undefined, name: string | undefined) => [
-                        (v ?? 0).toLocaleString("en-US", {
-                          maximumFractionDigits: 0,
-                        }),
+                        fmtFixed(v ?? 0, priceFractionDigits),
                         name === "medianPrice" ? medianLabel : (name ?? ""),
                       ]}
                     />
@@ -2208,7 +2218,9 @@ export default function Home() {
                               textAnchor="middle"
                               dominantBaseline={isEven ? "middle" : "middle"}
                             >
-                              {fmtNum(props.value)}
+                              {project === "Markets"
+                                ? fmtFixed(props.value, priceFractionDigits)
+                                : fmtNum(props.value)}
                             </text>
                           );
                         }}
@@ -2242,7 +2254,9 @@ export default function Home() {
                               textAnchor="middle"
                               dominantBaseline="middle"
                             >
-                              {fmtNum(props.value)}
+                              {project === "Markets"
+                                ? fmtFixed(props.value, priceFractionDigits)
+                                : fmtNum(props.value)}
                             </text>
                           );
                         }}
@@ -2284,7 +2298,9 @@ export default function Home() {
                                 textAnchor="middle"
                                 dominantBaseline="middle"
                               >
-                                {fmtNum(props.value)}
+                                {project === "Markets"
+                                  ? fmtFixed(props.value, priceFractionDigits)
+                                  : fmtNum(props.value)}
                               </text>
                             );
                           }}
@@ -2740,9 +2756,7 @@ export default function Home() {
                         axisLine={false}
                         tickLine={false}
                         tickFormatter={(v) =>
-                          v.toLocaleString("en-US", {
-                            maximumFractionDigits: 0,
-                          })
+                          fmtFixed(v, priceFractionDigits)
                         }
                       />
                       <YAxis
@@ -2757,9 +2771,7 @@ export default function Home() {
                       <Tooltip
                         {...shared}
                         formatter={(v: number | undefined) => [
-                          (v ?? 0).toLocaleString("en-US", {
-                            maximumFractionDigits: 0,
-                          }),
+                          fmtFixed(v ?? 0, priceFractionDigits),
                           medianLabel,
                         ]}
                       />

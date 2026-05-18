@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadMarketsRows, sortedPeriods } from "@/lib/dashboard-data";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const DEFAULT_PAGE_SIZE = 10_000;
 const MAX_PAGE_SIZE = 50_000;
@@ -31,7 +32,7 @@ function errorResponse(error: unknown): NextResponse {
 
 export async function GET(request: NextRequest) {
   try {
-    const rows = await loadMarketsRows(request.nextUrl.origin);
+    const rows = await loadMarketsRows();
     const cursor = parsePositiveInt(request.nextUrl.searchParams.get("cursor"), 0);
     const pageSize = clampPageSize(
       parsePositiveInt(request.nextUrl.searchParams.get("pageSize"), DEFAULT_PAGE_SIZE),

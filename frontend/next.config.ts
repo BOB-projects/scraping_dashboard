@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
+  outputFileTracingIncludes: {
+    "/*": ["./data/**/*.parquet"],
+  },
   turbopack: {
     root: process.cwd(),
   },

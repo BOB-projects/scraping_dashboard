@@ -419,18 +419,46 @@ def t(key):
     return TRANSLATIONS[st.session_state.lang].get(key, key)
 
 
+def _period_base(p):
+    return re.sub(r"\s*\((?:H1|H2)\)\s*$", "", str(p), flags=re.IGNORECASE)
+
+
+def _period_part_order(p):
+    value = str(p)
+    if re.search(r"(?:q1|h1|\(H1\))", value, flags=re.IGNORECASE):
+        return 1
+    if re.search(r"(?:q2|h2|\(H2\))", value, flags=re.IGNORECASE):
+        return 2
+    return 0
+
+
+def _period_from_filename(filename):
+    match = re.search(r"(\d{4})[-_]?(\d{2})", filename)
+    if not match:
+        return "Unknown"
+    suffix = ""
+    if re.search(r"[-_](?:q1|h1)(?=[._-]|$)", filename, flags=re.IGNORECASE):
+        suffix = " (H1)"
+    elif re.search(r"[-_](?:q2|h2)(?=[._-]|$)", filename, flags=re.IGNORECASE):
+        suffix = " (H2)"
+    return f"{match.group(1)}-{match.group(2)}{suffix}"
+
+
 def _period_sort_key(p):
     try:
-        year, month = str(p).split("-")
-        return (int(year), int(month))
+        year, month = _period_base(p).split("-")
+        return (int(year), int(month), _period_part_order(p))
     except Exception:
-        return (0, 0)
+        return (0, 0, 0)
 
 
 def _period_to_date(series):
     if series is None:
         return pd.Series(dtype="datetime64[ns]")
-    return pd.to_datetime(series.astype(str) + "-01", format="%Y-%m-%d", errors="coerce")
+    base = series.astype(str).str.replace(
+        r"\s*\((?:H1|H2)\)\s*$", "", regex=True
+    )
+    return pd.to_datetime(base + "-01", format="%Y-%m-%d", errors="coerce")
 
 
 def _add_percent_change(df, value_col):
@@ -540,7 +568,7 @@ main_container = st.container()
 
 @st.cache_data
 def load_bina_data():
-    base_path = "data/bina_az/data"
+    base_path = os.path.join("frontend", "data", "bina_az", "data")
     all_files = []
     for root, dirs, files in os.walk(base_path):
         for file in files:
@@ -548,10 +576,7 @@ def load_bina_data():
                 full_path = os.path.join(root, file)
                 is_rent = "rent" in full_path.lower() or "rent" in file.lower()
                 op_type = "Rent" if is_rent else "Sale"
-                match = re.search(r"(\d{6})", file)
-                date_period = (
-                    f"{match.group(1)[:4]}-{match.group(1)[4:]}" if match else "Unknown"
-                )
+                date_period = _period_from_filename(file)
                 all_files.append(
                     {"path": full_path, "type": op_type, "period": date_period}
                 )
@@ -619,7 +644,7 @@ def load_bina_data():
 
 @st.cache_data
 def load_markets_data():
-    base_path = "data/markets/data"
+    base_path = os.path.join("frontend", "data", "markets", "data")
     all_files = []
     if not os.path.exists(base_path):
         return pd.DataFrame()
@@ -632,7 +657,10 @@ def load_markets_data():
     for f in all_files:
         try:
             df = pd.read_parquet(f)
-            if "timestamp" in df.columns:
+            file_period = _period_from_filename(os.path.basename(f))
+            if file_period != "Unknown":
+                df["period"] = file_period
+            elif "timestamp" in df.columns:
                 df["date"] = pd.to_datetime(df["timestamp"], errors="coerce")
                 # Create YYYY-MM period
                 df["period"] = df["date"].dt.to_period("M").astype(str)
@@ -684,15 +712,14 @@ def load_markets_data():
 
 @st.cache_data
 def load_turbo_data():
-    base_path = "data/turbo_az/data"
+    base_path = os.path.join("frontend", "data", "turbo_az", "data")
     all_files = []
     if not os.path.exists(base_path):
         return pd.DataFrame()
     for file in os.listdir(base_path):
         if file.endswith(".parquet"):
             full_path = os.path.join(base_path, file)
-            match = re.search(r"(\d{4}-\d{2})", file)
-            date_period = match.group(1) if match else "Unknown"
+            date_period = _period_from_filename(file)
             all_files.append({"path": full_path, "period": date_period})
 
     data_frames = []
@@ -832,7 +859,9 @@ if project == "Bina.az":
             )
             filtered_df = df[df["operation_type"] == selected_op]
 
-            available_periods = sorted(filtered_df["period"].unique().tolist())
+            available_periods = sorted(
+                filtered_df["period"].unique().tolist(), key=_period_sort_key
+            )
             if "b_periods" not in st.session_state:
                 qp_periods = _qp_get_list(qp, "periods", available_periods)
                 st.session_state.b_periods = [
@@ -1215,7 +1244,9 @@ if project == "Bina.az":
             )
 
             room_y = "median_total" if selected_op == "Rent" else "median_m2"
-            period_order = sorted(room_stats["period"].unique().tolist())
+            period_order = sorted(
+                room_stats["period"].unique().tolist(), key=_period_sort_key
+            )
             palette = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6"]
             period_colors = {
                 p: palette[i % len(palette)] for i, p in enumerate(period_order)
@@ -1593,7 +1624,9 @@ else:  # Turbo.az
     # Turbo.az Slicers
     with sb_filters.container():
         with st.expander("📅 " + t("filter_time"), expanded=True):
-            available_periods = sorted(df["period"].unique().tolist())
+            available_periods = sorted(
+                df["period"].unique().tolist(), key=_period_sort_key
+            )
             if "t_periods" not in st.session_state:
                 qp_periods = _qp_get_list(qp, "t_periods", available_periods)
                 st.session_state.t_periods = [

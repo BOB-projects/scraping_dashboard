@@ -12,6 +12,9 @@ wheels/
 data/**/*.csv
 data/**/*.xlsx
 data/**/*.json
+frontend/data/**/*.csv
+frontend/data/**/*.xlsx
+frontend/data/**/*.json
 
 # MCP files
 .playwright-mcp/

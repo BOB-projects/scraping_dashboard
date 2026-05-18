@@ -22,4 +22,4 @@ This project provides a comparative dashboard for real estate market analysis us
    ```
 
 ## Data Structure
-The dashboard expects data in the `data/bina_az/data/` directory with filenames containing the date (YYYYMM), e.g., `bina_sale_202601.csv`.
+The dashboard expects data in the `frontend/data/` directory with filenames containing the date (YYYYMM), e.g., `frontend/data/bina_az/data/bina_sale_202601.parquet`.
